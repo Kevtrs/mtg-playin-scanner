@@ -30,11 +30,9 @@ Le moteur [CollectorVision](https://github.com/HanClinto/CollectorVision), ses m
 
 GitHub Pages fournit HTTPS : c’est indispensable à `getUserMedia`, donc la caméra fonctionne une fois le site publié.
 
-## Limite Playin / CORS
+## Prix Playin
 
-Scryfall accepte les appels directs depuis le navigateur. Playin ne garantit pas l’accès cross-origin depuis une page GitHub Pages. Une PWA statique ne peut pas contourner ce blocage elle-même.
-
-Par défaut, **Chercher sur Playin** ouvre la recherche publique dans un nouvel onglet. Dans **Réglages Playin**, on peut saisir un proxy CORS public configurable sous la forme `https://proxy.exemple/?url={url}`. N’utilise jamais un proxy inconnu avec un compte ou des cookies Playin : cette application ne lui transmet volontairement aucune authentification.
+Après chaque reconnaissance, l’application consulte la recherche publique Playin via le lecteur public Jina AI, sélectionne l’impression la plus proche de l’édition Scryfall et affiche le prix Mint/Nmint FR ou EN. Seuls le nom public de la carte et la page publique Playin sont envoyés au relais ; aucun compte, cookie ou panier n’est utilisé. Le bouton **Chercher sur Playin** reste disponible pour vérifier manuellement une variante.
 
 ## Développement local
 

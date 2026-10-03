@@ -38,6 +38,7 @@ input { width: 100%; min-height: 46px; border: 1px solid #334155; border-radius:
 .price-box, .result-actions { grid-column: 1 / -1; }
 .price-box { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .3rem 1rem; padding: 1rem; border-radius: 14px; background: #111f38; }
 .price-box strong { color: #7dd3fc; font-size: 1.35rem; }.price-box small { flex-basis: 100%; }
+.price-box select { margin-left: .35rem; border: 1px solid #334155; border-radius: 7px; padding: .18rem .3rem; color: #e0f2fe; background: #0f172a; font-size: .75rem; }
 .summary { display: flex; align-items: center; gap: 2rem; }.summary div { display: grid; gap: .2rem; }.summary span { font-size: .75rem; color: #94a3b8; }.summary strong { font-size: 1.15rem; }.text-button { margin-left: auto; min-height: auto; border: 0; color: #fca5a5; background: transparent; }
 details summary { cursor: pointer; font-weight: 700; } details p { margin: .8rem 0; font-size: .85rem; line-height: 1.5; }
 .install-help { position: fixed; left: 1rem; right: 1rem; bottom: max(1rem, env(safe-area-inset-bottom)); max-width: 588px; margin: auto; padding: 1rem 2.8rem 1rem 1rem; border: 1px solid #38bdf8; border-radius: 16px; background: #082f49; box-shadow: 0 15px 50px #000b; }.install-help p { margin: .4rem 0 0; }.install-help button { position: absolute; top: .25rem; right: .4rem; min-height: auto; border: 0; background: transparent; font-size: 1.4rem; }

@@ -46,7 +46,7 @@
         <img id="card-image" alt="" />
         <div><p id="card-set" class="muted"></p><h2 id="card-name"></h2><p id="card-meta"></p></div>
         <div class="price-box">
-          <span>Rachat Playin</span><strong id="playin-price">À vérifier</strong>
+          <span>Rachat Playin <select id="price-language" aria-label="Langue du prix"><option value="Fr">FR</option><option value="En">EN</option></select></span><strong id="playin-price">Recherche…</strong>
           <small id="price-note">Le prix exact dépend de la langue, de l’état et du foil.</small>
         </div>
         <div class="result-actions">
@@ -60,14 +60,6 @@
         <div><span>Total connu</span><strong id="total">0,00 €</strong></div>
         <button id="clear-session" class="text-button">Vider</button>
       </section>
-
-      <details class="panel settings">
-        <summary>Réglages Playin</summary>
-        <p>GitHub Pages ne peut pas contourner le blocage CORS de Playin. Tu peux saisir l’adresse d’un proxy compatible. Utilise <code>{url}</code> à l’endroit où l’URL Playin doit être injectée.</p>
-        <label>Proxy public (optionnel)<input id="proxy-template" type="url" placeholder="https://proxy.exemple/?url={url}" /></label>
-        <button id="save-settings">Enregistrer</button>
-        <p class="muted">Sans proxy, le bouton ouvre simplement la recherche Playin dans Safari. Aucun compte ni panier n’est utilisé.</p>
-      </details>
 
       <p class="credits">Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur l’iPhone.</p>
 
