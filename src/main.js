@@ -14,6 +14,13 @@ let stream = null;
 let worker = null;
 let currentCard = null;
 let currentPrice = null;
+let continuous = false;
+let scanning = false;
+let scanTimer = null;
+let lastCardId = null;
+let lastOcrSignature = '';
+let consecutiveMisses = 0;
+let audioContext = null;
 const session = JSON.parse(localStorage.getItem('mtg-session') || '[]');
 els.proxy.value = localStorage.getItem('playin-proxy') || '';
 
@@ -31,12 +38,14 @@ function updateSession() {
 
 async function toggleCamera() {
   if (stream) {
+    continuous = false;
+    clearTimeout(scanTimer);
     stream.getTracks().forEach((track) => track.stop());
     stream = null;
     els.video.srcObject = null;
     els.placeholder.hidden = false;
     els.scan.disabled = true;
-    els.toggle.textContent = 'Ouvrir la caméra';
+    els.toggle.textContent = 'Démarrer le scan en chaîne';
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -44,16 +53,62 @@ async function toggleCamera() {
     return;
   }
   try {
+    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') await audioContext.resume();
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     els.video.srcObject = stream;
     await els.video.play();
     els.placeholder.hidden = true;
     els.scan.disabled = false;
-    els.toggle.textContent = 'Fermer la caméra';
-    setStatus('Caméra prête. Cadre le bas de la carte puis touche Scanner.');
+    continuous = true;
+    els.toggle.textContent = 'Arrêter le scan';
+    setStatus('Scan en chaîne actif. Place toute la carte dans le cadre et ne bouge plus.');
+    scheduleScan(500);
   } catch (error) {
     setStatus(error.name === 'NotAllowedError' ? 'Autorise la caméra dans les réglages Safari.' : `Caméra impossible : ${error.message}`, true);
   }
+}
+
+function scheduleScan(delay = 700) {
+  clearTimeout(scanTimer);
+  if (continuous && stream) scanTimer = setTimeout(() => scanCard(true), delay);
+}
+
+function cardCrop() {
+  const vw = els.video.videoWidth;
+  const vh = els.video.videoHeight;
+  // The visible guide occupies 76% width and 88% height. object-fit: cover means
+  // the video may be cropped; using the same centered ratio keeps OCR inside the card.
+  const targetRatio = 63 / 88;
+  let height = vh * .88;
+  let width = height * targetRatio;
+  if (width > vw * .76) { width = vw * .76; height = width / targetRatio; }
+  return { x: Math.floor((vw - width) / 2), y: Math.floor((vh - height) / 2), width: Math.floor(width), height: Math.floor(height) };
+}
+
+function buildOcrCanvas() {
+  const crop = cardCrop();
+  const ctx = els.canvas.getContext('2d', { willReadFrequently: true });
+  const outputWidth = 1400;
+  const topHeight = 260;
+  const bottomHeight = 360;
+  els.canvas.width = outputWidth;
+  els.canvas.height = topHeight + bottomHeight;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, els.canvas.width, els.canvas.height);
+  // Title line, enlarged.
+  ctx.drawImage(els.video, crop.x + crop.width * .035, crop.y + crop.height * .025, crop.width * .93, crop.height * .15, 0, 0, outputWidth, topHeight);
+  // Collector information and set code, enlarged.
+  ctx.drawImage(els.video, crop.x + crop.width * .025, crop.y + crop.height * .79, crop.width * .95, crop.height * .19, 0, topHeight, outputWidth, bottomHeight);
+  // Increasing contrast helps small collector text on recent cards.
+  const image = ctx.getImageData(0, 0, els.canvas.width, els.canvas.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = .299 * data[i] + .587 * data[i + 1] + .114 * data[i + 2];
+    const value = gray > 150 ? 255 : gray < 75 ? 0 : (gray - 75) * 3.4;
+    data[i] = data[i + 1] = data[i + 2] = value;
+  }
+  ctx.putImageData(image, 0, 0);
 }
 
 function parseOcr(text) {
@@ -65,32 +120,96 @@ function parseOcr(text) {
   return { set: set?.[0] || '', number: number?.[1] || '' };
 }
 
-async function scanCard() {
-  if (!stream) return;
+async function scanCard(automatic = false) {
+  if (!stream || scanning) return;
+  scanning = true;
   els.scan.disabled = true;
   try {
-    const vw = els.video.videoWidth;
-    const vh = els.video.videoHeight;
-    const cropY = Math.floor(vh * 0.68);
-    els.canvas.width = vw;
-    els.canvas.height = vh - cropY;
-    els.canvas.getContext('2d').drawImage(els.video, 0, cropY, vw, vh - cropY, 0, 0, vw, vh - cropY);
-    setStatus('Lecture du bas de la carte… premier scan un peu plus long.');
+    buildOcrCanvas();
+    if (!automatic || !worker) setStatus('Lecture de la carte… le premier passage peut être plus long.');
     worker ||= await createWorker('eng');
     const result = await worker.recognize(els.canvas);
-    const parsed = parseOcr(result.data.text);
+    const rawText = result.data.text.trim();
+    const signature = rawText.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 80);
+    if (automatic && signature && signature === lastOcrSignature) return;
+    const parsed = parseOcr(rawText);
     els.set.value = parsed.set;
     els.number.value = parsed.number;
-    if (!parsed.set || !parsed.number) {
-      setStatus('Lecture incertaine : corrige le code et le numéro ci-dessous.', true);
+    let card = null;
+    if (parsed.set && parsed.number) card = await fetchExactCard(parsed.set, parsed.number);
+    if (!card) card = await fetchCardByOcrName(rawText);
+    if (!card) {
+      consecutiveMisses += 1;
+      if (consecutiveMisses >= 3) {
+        // A gap means the previous card was removed. This allows several copies
+        // of the same printing to be scanned one after another without duplicates.
+        lastCardId = null;
+        lastOcrSignature = '';
+      }
+      if (!automatic) setStatus('Carte non reconnue. Rapproche-la, évite les reflets et réessaie.', true);
       return;
     }
-    await lookupCard(parsed.set, parsed.number);
+    consecutiveMisses = 0;
+    lastOcrSignature = signature;
+    await acceptScannedCard(card);
   } catch (error) {
-    setStatus(`OCR impossible : ${error.message}`, true);
+    if (!automatic) setStatus(`Lecture impossible : ${error.message}`, true);
   } finally {
+    scanning = false;
     els.scan.disabled = !stream;
+    scheduleScan(lastCardId ? 1000 : 550);
   }
+}
+
+async function fetchExactCard(set, number) {
+  const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set.toLowerCase())}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
+  return response.ok ? response.json() : null;
+}
+
+function candidateNames(text) {
+  return text.split(/\r?\n/).map((line) => line.replace(/[^\p{L}\p{N}',’\- ]/gu, ' ').replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length >= 3 && line.length <= 55 && /\p{L}/u.test(line))
+    .slice(0, 4);
+}
+
+async function fetchCardByOcrName(text) {
+  for (const name of candidateNames(text)) {
+    const response = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
+    if (response.ok) return response.json();
+    await new Promise((resolve) => setTimeout(resolve, 110));
+  }
+  return null;
+}
+
+async function acceptScannedCard(card) {
+  currentCard = card;
+  currentPrice = null;
+  renderCard(card, false);
+  if (card.id !== lastCardId) {
+    lastCardId = card.id;
+    if (!session.some((item, index) => index === session.length - 1 && item.id === card.id)) {
+      session.push({ id: card.id, name: card.name, set: card.set, number: card.collector_number, price: null });
+      updateSession();
+    }
+    beep();
+    const flash = $('scan-flash');
+    flash.classList.add('success');
+    setTimeout(() => flash.classList.remove('success'), 260);
+    if (navigator.vibrate) navigator.vibrate(80);
+  }
+  setStatus(`${card.name} reconnue ✓ Retire-la et présente la suivante.`);
+}
+
+function beep() {
+  if (!audioContext) return;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  oscillator.frequency.value = 880;
+  gain.gain.setValueAtTime(.08, audioContext.currentTime);
+  gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + .12);
+  oscillator.connect(gain).connect(audioContext.destination);
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + .12);
 }
 
 async function lookupCard(set, number) {
@@ -100,7 +219,7 @@ async function lookupCard(set, number) {
   setStatus('Identification via Scryfall…');
   els.result.hidden = true;
   try {
-    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`);
+    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
     if (!response.ok) throw new Error(response.status === 404 ? 'carte introuvable' : `Scryfall ${response.status}`);
     currentCard = await response.json();
     currentPrice = null;
@@ -111,7 +230,7 @@ async function lookupCard(set, number) {
   }
 }
 
-function renderCard(card) {
+function renderCard(card, shouldScroll = true) {
   const face = card.card_faces?.[0] || card;
   els.image.src = face.image_uris?.normal || face.image_uris?.small || '';
   els.image.alt = card.name;
@@ -121,7 +240,7 @@ function renderCard(card) {
   els.price.textContent = 'À vérifier';
   els.priceNote.textContent = 'Le prix exact dépend de la langue, de l’état et du foil.';
   els.result.hidden = false;
-  els.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (shouldScroll) els.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function playinSearchUrl(card) {
@@ -166,7 +285,7 @@ function extractPrice(html, cardName) {
 }
 
 els.toggle.addEventListener('click', toggleCamera);
-els.scan.addEventListener('click', scanCard);
+els.scan.addEventListener('click', () => scanCard(false));
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
 els.playin.addEventListener('click', checkPlayin);
 els.add.addEventListener('click', () => {

@@ -24,14 +24,17 @@
         <video id="camera" playsinline muted></video>
         <canvas id="capture" hidden></canvas>
         <div id="camera-placeholder" class="placeholder">
-          <span>⌁</span><p>Cadre le bas de la carte, là où figurent le code d’édition et le numéro.</p>
+          <span>⌁</span><p>Place toute la carte dans le cadre. La lecture démarre automatiquement.</p>
         </div>
-        <div class="scan-zone" aria-hidden="true"></div>
+        <div class="card-guide" aria-hidden="true">
+          <span class="guide-top">Nom</span><span class="guide-bottom">Édition · numéro</span>
+        </div>
+        <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
       </section>
 
       <div class="actions">
-        <button id="camera-toggle" class="primary">Ouvrir la caméra</button>
-        <button id="scan" disabled>Scanner</button>
+        <button id="camera-toggle" class="primary">Démarrer le scan en chaîne</button>
+        <button id="scan" disabled>Forcer la lecture</button>
       </div>
       <p id="status" class="status" role="status">Prêt.</p>
 
