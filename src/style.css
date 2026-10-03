@@ -1,0 +1,35 @@
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background: #070b14; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172554 0, #070b14 42rem); }
+button, input { font: inherit; }
+button { min-height: 48px; border: 1px solid #334155; border-radius: 14px; padding: .75rem 1rem; color: #f8fafc; background: #172033; font-weight: 700; }
+button:disabled { opacity: .45; }
+.primary { border-color: #38bdf8; color: #06121c; background: #38bdf8; }
+.app { width: min(100%, 620px); margin: auto; padding: max(1rem, env(safe-area-inset-top)) 1rem max(6rem, env(safe-area-inset-bottom)); }
+header { display: flex; justify-content: space-between; align-items: center; margin: .5rem 0 1rem; }
+h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0; font-size: 1.65rem; } h2 { font-size: 1.05rem; }
+.eyebrow { margin-bottom: .2rem; text-transform: uppercase; letter-spacing: .12em; font-size: .7rem; color: #7dd3fc; }
+.pill { border: 1px solid #14532d; border-radius: 999px; padding: .35rem .6rem; background: #052e16; color: #86efac; font-size: .78rem; }
+.pill.offline { border-color: #7c2d12; background: #431407; color: #fdba74; }
+.camera-card { position: relative; overflow: hidden; aspect-ratio: 3 / 4; border: 1px solid #334155; border-radius: 24px; background: #0f172a; box-shadow: 0 24px 70px #0008; }
+video { width: 100%; height: 100%; object-fit: cover; }
+.placeholder { position: absolute; inset: 0; display: grid; place-content: center; padding: 3rem; text-align: center; color: #94a3b8; }
+.placeholder span { font-size: 4rem; color: #38bdf8; }
+.scan-zone { position: absolute; left: 8%; right: 8%; bottom: 8%; height: 24%; border: 2px solid #38bdf8; border-radius: 12px; box-shadow: 0 0 0 999px #02061744; pointer-events: none; }
+.actions, .result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin: .8rem 0; }
+.status { min-height: 1.5rem; color: #bae6fd; font-size: .9rem; } .status.error { color: #fca5a5; }
+.panel { margin-top: 1rem; padding: 1rem; border: 1px solid #26344c; border-radius: 18px; background: #0f172adb; backdrop-filter: blur(14px); }
+form { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; } form button { grid-column: 1 / -1; }
+label { display: grid; gap: .35rem; color: #cbd5e1; font-size: .8rem; }
+input { width: 100%; min-height: 46px; border: 1px solid #334155; border-radius: 12px; padding: .7rem; color: #f8fafc; background: #070b14; font-size: 1rem; }
+.result { display: grid; grid-template-columns: 84px 1fr; gap: 1rem; }
+.result > img { width: 84px; border-radius: 8px; }
+.result h2 { margin-bottom: .35rem; font-size: 1.2rem; }
+.muted, small { color: #94a3b8; }
+.price-box, .result-actions { grid-column: 1 / -1; }
+.price-box { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .3rem 1rem; padding: 1rem; border-radius: 14px; background: #111f38; }
+.price-box strong { color: #7dd3fc; font-size: 1.35rem; }.price-box small { flex-basis: 100%; }
+.summary { display: flex; align-items: center; gap: 2rem; }.summary div { display: grid; gap: .2rem; }.summary span { font-size: .75rem; color: #94a3b8; }.summary strong { font-size: 1.15rem; }.text-button { margin-left: auto; min-height: auto; border: 0; color: #fca5a5; background: transparent; }
+details summary { cursor: pointer; font-weight: 700; } details p { margin: .8rem 0; font-size: .85rem; line-height: 1.5; }
+.install-help { position: fixed; left: 1rem; right: 1rem; bottom: max(1rem, env(safe-area-inset-bottom)); max-width: 588px; margin: auto; padding: 1rem 2.8rem 1rem 1rem; border: 1px solid #38bdf8; border-radius: 16px; background: #082f49; box-shadow: 0 15px 50px #000b; }.install-help p { margin: .4rem 0 0; }.install-help button { position: absolute; top: .25rem; right: .4rem; min-height: auto; border: 0; background: transparent; font-size: 1.4rem; }
+@media (min-width: 560px) { .camera-card { aspect-ratio: 4 / 3; } }

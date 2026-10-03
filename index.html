@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#111827" />
+    <meta name="description" content="Scanner une carte Magic et retrouver son prix de rachat Playin." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MTG Playin" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <title>MTG Playin Scanner</title>
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <div><p class="eyebrow">Scanner mobile</p><h1>MTG → Playin</h1></div>
+        <span id="network" class="pill">En ligne</span>
+      </header>
+
+      <section class="camera-card">
+        <video id="camera" playsinline muted></video>
+        <canvas id="capture" hidden></canvas>
+        <div id="camera-placeholder" class="placeholder">
+          <span>⌁</span><p>Cadre le bas de la carte, là où figurent le code d’édition et le numéro.</p>
+        </div>
+        <div class="scan-zone" aria-hidden="true"></div>
+      </section>
+
+      <div class="actions">
+        <button id="camera-toggle" class="primary">Ouvrir la caméra</button>
+        <button id="scan" disabled>Scanner</button>
+      </div>
+      <p id="status" class="status" role="status">Prêt.</p>
+
+      <section class="panel">
+        <h2>Correction manuelle</h2>
+        <form id="lookup-form">
+          <label>Code d’édition<input id="set-code" maxlength="8" placeholder="MKM" autocapitalize="characters" /></label>
+          <label>Numéro<input id="collector-number" maxlength="16" placeholder="123" inputmode="text" /></label>
+          <button class="primary" type="submit">Identifier la carte</button>
+        </form>
+      </section>
+
+      <section id="result" class="panel result" hidden>
+        <img id="card-image" alt="" />
+        <div><p id="card-set" class="muted"></p><h2 id="card-name"></h2><p id="card-meta"></p></div>
+        <div class="price-box">
+          <span>Rachat Playin</span><strong id="playin-price">À vérifier</strong>
+          <small id="price-note">Le prix exact dépend de la langue, de l’état et du foil.</small>
+        </div>
+        <div class="result-actions">
+          <button id="playin-check" class="primary">Chercher sur Playin</button>
+          <button id="add-session">Ajouter à la session</button>
+        </div>
+      </section>
+
+      <section class="panel summary">
+        <div><span>Cartes</span><strong id="count">0</strong></div>
+        <div><span>Total connu</span><strong id="total">0,00 €</strong></div>
+        <button id="clear-session" class="text-button">Vider</button>
+      </section>
+
+      <details class="panel settings">
+        <summary>Réglages Playin</summary>
+        <p>GitHub Pages ne peut pas contourner le blocage CORS de Playin. Tu peux saisir l’adresse d’un proxy compatible. Utilise <code>{url}</code> à l’endroit où l’URL Playin doit être injectée.</p>
+        <label>Proxy public (optionnel)<input id="proxy-template" type="url" placeholder="https://proxy.exemple/?url={url}" /></label>
+        <button id="save-settings">Enregistrer</button>
+        <p class="muted">Sans proxy, le bouton ouvre simplement la recherche Playin dans Safari. Aucun compte ni panier n’est utilisé.</p>
+      </details>
+
+      <aside id="install-help" class="install-help" hidden>
+        <button id="close-install" aria-label="Fermer">×</button>
+        <strong>Installer sur l’iPhone</strong>
+        <p>Dans Safari : Partager <span>□↑</span> puis « Sur l’écran d’accueil ».</p>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
