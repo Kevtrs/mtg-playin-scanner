@@ -1,6 +1,8 @@
 # MTG Playin Scanner — PWA iPhone
 
-Application web statique : caméra + OCR local, identification exacte via Scryfall, puis vérification du prix public de rachat Playin. Elle ne se connecte à aucun compte et n’ajoute rien au panier.
+Application web statique : reconnaissance visuelle locale avec CollectorVision, identification exacte via Scryfall, puis vérification du prix public de rachat Playin. Elle ne se connecte à aucun compte et n’ajoute rien au panier.
+
+Le moteur [CollectorVision](https://github.com/HanClinto/CollectorVision), ses modèles et son catalogue sont distribués sous licence AGPL-3.0. Le premier lancement télécharge environ 40 Mo, ensuite mis en cache sur l’appareil.
 
 ## Mise en ligne (très simple)
 

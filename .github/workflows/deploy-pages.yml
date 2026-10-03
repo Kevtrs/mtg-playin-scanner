@@ -25,6 +25,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Préparer le moteur CollectorVision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --depth 1 https://github.com/HanClinto/CollectorVision.git /tmp/collectorvision
+          mkdir -p dist/cv
+          cp -r /tmp/collectorvision/examples/web_scanner/lib dist/cv/
+          cp /tmp/collectorvision/examples/web_scanner/scanner.worker.mjs dist/cv/
+          cp /tmp/collectorvision/LICENSE dist/cv/COLLECTORVISION-LICENSE
+          mkdir -p /tmp/cv-assets
+          gh release download web-scanner-assets \
+            --repo HanClinto/CollectorVision \
+            --pattern "web-scanner-assets.tar.zst" \
+            --dir /tmp/cv-assets
+          tar --zstd -xf /tmp/cv-assets/web-scanner-assets.tar.zst -C dist/cv assets vendor bundle-metadata.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

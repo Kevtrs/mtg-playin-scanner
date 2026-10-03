@@ -20,21 +20,16 @@
         <span id="network" class="pill">En ligne</span>
       </header>
 
-      <section class="camera-card">
-        <video id="camera" playsinline muted></video>
-        <canvas id="capture" hidden></canvas>
-        <div id="camera-placeholder" class="placeholder">
-          <span>⌁</span><p>Place toute la carte dans le cadre. La lecture démarre automatiquement.</p>
-        </div>
-        <div class="card-guide" aria-hidden="true">
-          <span class="guide-top">Nom</span><span class="guide-bottom">Édition · numéro</span>
+      <section class="camera-card cv-host">
+        <div id="cv-scanner" class="cv-scanner">
+          <div class="placeholder"><span>◈</span><p>Le moteur de reconnaissance visuelle se charge au premier lancement.</p></div>
         </div>
         <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
       </section>
 
       <div class="actions">
-        <button id="camera-toggle" class="primary">Démarrer le scan en chaîne</button>
-        <button id="scan" disabled>Forcer la lecture</button>
+        <button id="camera-toggle" class="primary">Démarrer le vrai scanner</button>
+        <button id="scan" disabled>Modèle visuel</button>
       </div>
       <p id="status" class="status" role="status">Prêt.</p>
 
@@ -73,6 +68,8 @@
         <button id="save-settings">Enregistrer</button>
         <p class="muted">Sans proxy, le bouton ouvre simplement la recherche Playin dans Safari. Aucun compte ni panier n’est utilisé.</p>
       </details>
+
+      <p class="credits">Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur l’iPhone.</p>
 
       <aside id="install-help" class="install-help" hidden>
         <button id="close-install" aria-label="Fermer">×</button>
