@@ -19,7 +19,9 @@
         <div><p class="eyebrow">Scanner mobile</p><h1>MTG → Playin</h1></div>
         <span id="network" class="pill">En ligne</span>
       </header>
+      <nav class="view-tabs" aria-label="Navigation"><button id="tab-scanner" aria-current="page" aria-controls="scanner-view">Scanner</button><button id="tab-collection" aria-controls="collection-view">Collection <span id="collection-count">0</span></button></nav>
 
+      <div id="scanner-view">
       <section class="camera-card cv-host">
         <div id="cv-scanner" class="cv-scanner">
           <div class="placeholder"><span>◈</span><p>Le moteur de reconnaissance visuelle se charge au premier lancement.</p></div>
@@ -36,19 +38,20 @@
       </section>
 
       <div class="actions">
-        <button id="camera-toggle" class="primary">Démarrer le vrai scanner</button>
+        <button id="camera-toggle" class="primary">Démarrer le scanner</button>
         <button id="scan" disabled>Modèle visuel</button>
       </div>
       <p id="status" class="status" role="status">Prêt.</p>
+      <p class="scan-hint">Une carte immobile = un seul ajout. Pour deux exemplaires identiques, laisse le cadre vide un instant entre les deux.</p>
 
-      <section class="panel">
-        <h2>Correction manuelle</h2>
+      <details class="panel manual-entry">
+        <summary>Identifier une carte manuellement</summary>
         <form id="lookup-form">
           <label>Code d’édition<input id="set-code" maxlength="8" placeholder="MKM" autocapitalize="characters" /></label>
           <label>Numéro<input id="collector-number" maxlength="16" placeholder="123" inputmode="text" /></label>
           <button class="primary" type="submit">Identifier la carte</button>
         </form>
-      </section>
+      </details>
 
       <section id="result" class="panel result" hidden>
         <img id="card-image" alt="" />
@@ -58,14 +61,29 @@
           <button id="add-session">Ajouter à la session</button>
         </div>
       </section>
+      </div>
 
+      <div id="collection-view" hidden>
       <section class="panel summary">
         <div><span>Cartes</span><strong id="count">0</strong></div>
         <div><span>Total connu</span><strong id="total">0,00 €</strong><small id="unpriced"></small></div>
-        <button id="clear-session" class="text-button">Vider</button>
+        <button id="clear-session" class="text-button">Tout vider</button>
       </section>
 
-      <section class="panel"><h2>Historique des cartes</h2><p class="muted">Conservé sur cet appareil. Choisis la finition de chaque carte pour le total.</p><div id="history"></div></section>
+      <section class="collection-panel">
+        <div class="collection-heading"><div><p class="eyebrow">Ta collection</p><h2>Cartes scannées</h2></div><button id="reset-filters" class="subtle-button">Réinitialiser</button></div>
+        <div class="history-toolbar">
+          <label class="search-label"><span>Rechercher</span><input id="history-search" type="search" placeholder="Nom, édition, numéro…" /></label>
+          <div class="toolbar-pair"><label>Trier<select id="history-sort"><option value="newest">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="price-desc">Prix décroissant</option><option value="price-asc">Prix croissant</option></select></label><label>Période<select id="history-period"><option value="all">Toutes les dates</option><option value="today">Aujourd’hui</option><option value="7d">7 derniers jours</option><option value="30d">30 derniers jours</option></select></label></div>
+          <div class="toolbar-pair"><label>Prix min. (€)<input id="history-min" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" /></label><label>Prix max. (€)<input id="history-max" type="number" min="0" step="0.01" placeholder="Sans limite" inputmode="decimal" /></label></div>
+        </div>
+        <p id="history-summary" class="history-summary" aria-live="polite"></p>
+        <div id="history"></div>
+        <button id="undo-delete" class="undo-delete" hidden>Carte retirée · Annuler</button>
+        <button id="history-more" class="load-more" hidden>Afficher 30 de plus</button>
+        <p class="storage-note">Enregistré sur cet appareil · prix unitaires de la finition choisie</p>
+      </section>
+      </div>
       <p class="credits">Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur l’iPhone.</p>
 
       <aside id="install-help" class="install-help" hidden>

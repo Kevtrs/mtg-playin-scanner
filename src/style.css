@@ -7,9 +7,6 @@
 .finish-prices { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; }
 .finish-prices button { padding:6px; font-size:.8rem; display:grid; gap:3px; }
 button[aria-pressed="true"] { border-color:#38bdf8; background:#123a53; }
-.history-item { border-top:1px solid #334155; padding:12px 0; display:grid; gap:7px; }
-.history-item select { padding:8px; background:#172033; color:white; border:1px solid #475569; border-radius:8px; }
-.history-item .remove { color:#fca5a5; }
 .cv-host { height:min(65svh, 560px); overflow:hidden !important; }
 .cv-scanner .cv-applet__stage { height:min(65svh, 560px); }
 body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #172554 0, #070b14 42rem); }
@@ -56,3 +53,50 @@ details summary { cursor: pointer; font-weight: 700; } details p { margin: .8rem
 .install-help { position: fixed; left: 1rem; right: 1rem; bottom: max(1rem, env(safe-area-inset-bottom)); max-width: 588px; margin: auto; padding: 1rem 2.8rem 1rem 1rem; border: 1px solid #38bdf8; border-radius: 16px; background: #082f49; box-shadow: 0 15px 50px #000b; }.install-help p { margin: .4rem 0 0; }.install-help button { position: absolute; top: .25rem; right: .4rem; min-height: auto; border: 0; background: transparent; font-size: 1.4rem; }
 .credits { margin: 1.2rem 0; color: #64748b; text-align: center; font-size: .72rem; }.credits a { color: #7dd3fc; }
 @media (min-width: 560px) { .camera-card { max-height: 75vh; } }
+
+/* Compact collection layout inspired by product-list / filter-bar patterns. */
+select { font:inherit; color:#e2e8f0; background:#121d30; border:1px solid #334155; border-radius:10px; padding:10px; min-width:0; min-height:44px; }
+.view-tabs { display:flex; padding:4px; gap:4px; border:1px solid #27364c; border-radius:15px; background:#0d1626; margin-bottom:16px; position:sticky; top:8px; z-index:6; }
+.view-tabs button { flex:1; border:0; background:transparent; color:#94a3b8; min-height:44px; border-radius:11px; }
+.view-tabs button[aria-current="page"] { color:#e0f2fe; background:#20334c; box-shadow:0 2px 8px #0003; }
+#collection-count { display:inline-block; margin-left:5px; border-radius:7px; padding:1px 6px; background:#07111d; font-size:.75rem; font-variant-numeric:tabular-nums; }
+.scan-hint { color:#8ca2bb; font-size:.8rem; line-height:1.5; }
+.manual-entry form { margin-top:16px; }
+.collection-panel { margin-top:24px; }
+.collection-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 16px; }
+.collection-heading h2 { font-size:1.4rem; margin:0; letter-spacing:-.03em; }
+.collection-heading .eyebrow { font-size:.65rem; }
+.subtle-button { color:#94a3b8; border:0; padding:8px; background:transparent; font-size:.75rem; }
+.history-toolbar { display:grid; gap:12px; padding:16px; background:#0f192a; border:1px solid #26354a; border-radius:16px; }
+.toolbar-pair { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.history-toolbar label { min-width:0; color:#9eafc3; font-size:.72rem; }
+.history-toolbar input, .history-toolbar select { font-size:16px; width:100%; }
+.history-summary { margin:16px 2px 10px; color:#9eafc3; font-size:.78rem; font-variant-numeric:tabular-nums; }
+#history { background:#0e1726; border:1px solid #29384d; border-radius:16px; overflow:hidden; }
+.history-item { padding:0; border:0; border-bottom:1px solid #233045; background:transparent; }
+.history-item:last-child { border-bottom:0; }
+.history-item > summary { list-style:none; display:grid; grid-template-columns:40px minmax(0,1fr) auto; gap:12px; padding:14px 12px; align-items:center; cursor:pointer; }
+.history-item > summary::-webkit-details-marker { display:none; }
+.history-item > summary:hover { background:#152136; }
+.history-item > summary:focus-visible { outline:2px solid #38bdf8; outline-offset:-3px; }
+.history-thumbnail { width:40px; height:56px; display:grid; place-items:center; border-radius:5px; overflow:hidden; background:linear-gradient(150deg,#314a6a,#111c2c); border:1px solid #475d78; color:#bccfe2; font-size:.6rem; }
+.history-thumbnail img { display:block; width:100%; height:100%; object-fit:cover; }
+.history-body { min-width:0; display:grid; gap:4px; }
+.history-body > strong { color:#e6edf6; font-size:.86rem; font-weight:650; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-meta { font-size:.67rem; color:#93a6bf; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-time { font-size:.65rem; color:#758aa5; }
+.history-price { text-align:right; max-width:100px; display:grid; gap:5px; font-variant-numeric:tabular-nums; }
+.history-price strong { color:#a7e3fb; font-size:.95rem; white-space:nowrap; }
+.history-price small { font-size:.62rem; font-weight:400; color:#849bb5; }
+.history-details { border-top:1px solid #26344a; padding:12px; background:#142034; display:grid; grid-template-columns:1fr auto; align-items:end; gap:12px; }
+.history-details p { grid-column:1/-1; margin:0; font-size:.78rem; line-height:1.5; color:#abc1d9; }
+.history-details label { font-size:.7rem; }
+.history-details .remove { padding:8px 10px; font-size:.7rem; min-height:44px; color:#fda4af; border-color:#553446; background:#30202e; }
+.load-more { width:100%; margin-top:12px; background:#17263c; color:#b8d9ef; font-size:.85rem; }
+.storage-note { margin-top:14px; text-align:center; font-size:.65rem; color:#758ba5; }
+.empty-history { padding:36px 20px; color:#8ba0bb; text-align:center; font-size:.9rem; }
+.undo-delete { position:fixed; bottom:max(20px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:9; background:#e0f2fe; color:#0c2238; border:1px solid #fff; border-radius:12px; box-shadow:0 8px 30px #0008; white-space:nowrap; }
+.summary { gap:12px; padding:16px; background:linear-gradient(120deg,#162d48,#101c30); }
+.summary .text-button { font-size:.7rem; padding:8px; }
+.summary strong { font-variant-numeric:tabular-nums; }
+@media(max-width:360px) { .history-item > summary { gap:8px; grid-template-columns:32px minmax(0,1fr) auto; padding:12px 8px; }.history-thumbnail {width:32px;height:46px;}.history-price strong {font-size:.82rem;}.app {padding-left:10px;padding-right:10px;} }
