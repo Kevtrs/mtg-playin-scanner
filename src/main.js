@@ -6,7 +6,7 @@ import { loadSession, saveSession } from './storage.js';
 const $ = (id) => document.getElementById(id);
 const els = {
   toggle: $('camera-toggle'), mode: $('scan'), status: $('status'), form: $('lookup-form'), set: $('set-code'),
-  number: $('collector-number'), result: $('result'), image: $('card-image'), name: $('card-name'), cardSet: $('card-set'),
+  number: $('collector-number'), thumb: $('card-thumb'), name: $('overlay-name'),
   meta: $('card-meta'), price: $('playin-price'), priceNote: $('price-note'), playin: $('playin-check'), add: $('add-session'),
   priceLanguage: $('price-language'), count: $('count'), total: $('total'), clear: $('clear-session'), network: $('network')
 };
@@ -33,6 +33,13 @@ for (const item of session) {
 }
 const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', {style:'currency',currency:'EUR'}) : 'Indisponible';
 
+function thumbnailFor(item) {
+  const thumbnail=document.createElement('div'); thumbnail.className='thumb'; thumbnail.setAttribute('aria-hidden','true');
+  if(item.image && /^https:\/\/(cards\.scryfall\.io|images\.scryfall\.io)\//.test(item.image)) { const img=document.createElement('img'); img.src=item.image; img.alt=''; img.loading='lazy'; thumbnail.append(img); }
+  else thumbnail.textContent=(item.set||'MTG').toUpperCase();
+  return thumbnail;
+}
+
 function renderHistory() {
   const focused = document.activeElement;
   const focusEntry = focused?.closest('[data-entry]')?.dataset.entry;
@@ -41,38 +48,55 @@ function renderHistory() {
   const items=selectHistory(session, { search:$('history-search').value, sort:$('history-sort').value, period:$('history-period').value, min:$('history-min').value, max:$('history-max').value });
   const count=items.reduce((sum,item)=>sum+(item.quantity||1),0);
   const subtotal=items.reduce((sum,item)=>sum+(Number.isFinite(item.price)?item.price*(item.quantity||1):0),0);
-  $('history-summary').textContent=`${count} carte${count===1?'':'s'} · ${money(subtotal)} connus dans cette sélection`;
+  const filtered=items.length!==session.length;
+  $('history-summary').textContent=session.length && filtered ? `${count} carte${count===1?'':'s'} · ${money(subtotal)} dans cette sélection` : '';
   $('history-more').hidden=items.length<=historyLimit;
-  if (!items.length) { const empty=document.createElement('div'); empty.className='empty-history'; empty.textContent=session.length?'Aucune carte ne correspond à ces filtres.':'Ta première carte scannée apparaîtra ici.'; $('history').append(empty); }
+  if (!items.length) {
+    const empty=document.createElement('div'); empty.className='empty-history';
+    const title=document.createElement('strong'); const hint=document.createElement('span');
+    if(session.length) { title.textContent='Aucun résultat'; hint.textContent='Aucune carte ne correspond à ces filtres.'; }
+    else { title.textContent='Ta collection est vide'; hint.textContent='Scanne une carte : elle apparaîtra ici avec son prix de rachat.'; }
+    empty.append(title,hint); $('history').append(empty); $('history').style.display='block';
+  } else $('history').style.display='';
   for (const item of items.slice(0,historyLimit)) {
     const row = document.createElement('details'); row.className = 'history-item'; row.dataset.entry=item.entryId; row.open=openHistory.has(item.entryId);
     row.addEventListener('toggle',()=>{if(row.isConnected) row.open?openHistory.add(item.entryId):openHistory.delete(item.entryId);});
     const summary=document.createElement('summary'); summary.dataset.action='expand';
-    const thumbnail=document.createElement('div'); thumbnail.className='history-thumbnail';
-    if(item.image && /^https:\/\/(cards\.scryfall\.io|images\.scryfall\.io)\//.test(item.image)) { const img=document.createElement('img'); img.src=item.image; img.alt=''; img.loading='lazy'; thumbnail.append(img); }
-    else thumbnail.textContent=(item.set||'MTG').toUpperCase();
+    const thumbnail=thumbnailFor(item);
     const body=document.createElement('div'); body.className='history-body';
     const name=document.createElement('strong'); name.textContent=item.name;
-    const info=document.createElement('span'); info.className='history-meta'; info.textContent=`${(item.set||'').toUpperCase()} · #${item.number} · ${item.language||'Fr'} · ${item.finish==='foil'?'Foil':'Normal'}`;
+    const info=document.createElement('span'); info.className='history-meta'; info.textContent=`${(item.set||'').toUpperCase()} · #${item.number} · ${(item.language||'Fr').toUpperCase()} · ${item.finish==='foil'?'Foil':'Normal'}`;
     const time=document.createElement('time'); time.className='history-time';
     const date=new Date(item.scannedAt); time.textContent=Number.isNaN(date.getTime())?'Date inconnue':date.toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); if(!Number.isNaN(date.getTime())) time.dateTime=date.toISOString();
     body.append(name,info,time);
     const price=document.createElement('div'); price.className='history-price';
     const amount=document.createElement('strong'); amount.textContent=Number.isFinite(item.price)?money(item.price):'—';
-    const quantity=document.createElement('small'); quantity.textContent=`×${item.quantity||1} · ${Number.isFinite(item.price)?'par carte':item.priceState||'sans tarif'}`; price.append(amount,quantity);
+    const quantity=document.createElement('small'); quantity.textContent=(item.quantity||1)>1?`×${item.quantity}`:(Number.isFinite(item.price)?'':item.priceState||'Sans tarif'); price.append(amount,quantity);
     summary.append(thumbnail,body,price);
     const controls=document.createElement('div'); controls.className='history-details';
-    const prices=document.createElement('p'); prices.textContent=`Normal ${money(item.prices.normal)} · Foil ${money(item.prices.foil)}`;
-    const label=document.createElement('label'); label.textContent='Finition pour le total';
-    const select=document.createElement('select'); select.dataset.action='finish'; select.setAttribute('aria-label',`Finition de ${item.name}`);
-    for(const [value,text] of [['normal','Normal'],['foil','Foil']]) {const option=document.createElement('option'); option.value=value; option.textContent=text; select.append(option);}
-    select.value=item.finish; label.append(select);
-    select.onchange=()=>{item.finish=select.value; item.price=item.prices[item.finish]; if(currentEntry===item){currentFinish=item.finish; paintPrices(item);} updateSession();};
-    const remove=document.createElement('button'); remove.className='remove'; remove.dataset.action='remove'; remove.textContent=(item.quantity||1)>1?'Retirer un exemplaire':'Supprimer la carte';
-    remove.onclick=()=>{lastRemoved={item,index:session.indexOf(item),decrement:(item.quantity||1)>1}; if(lastRemoved.decrement) item.quantity--; else session.splice(lastRemoved.index,1); updateSession(); $('undo-delete').hidden=false;};
-    controls.append(prices,label,remove); row.append(summary,controls); $('history').append(row);
+    const prices=document.createElement('p'); prices.textContent=`Normal ${priceText(item.prices.normal)} · Foil ${priceText(item.prices.foil)}`;
+    const toggle=document.createElement('div'); toggle.className='finish-toggle'; toggle.setAttribute('role','group'); toggle.setAttribute('aria-label',`Finition de ${item.name}`);
+    for(const [value,text] of [['normal','Normal'],['foil','Foil']]) {
+      const option=document.createElement('button'); option.type='button'; option.dataset.action='finish-'+value; option.textContent=text; option.setAttribute('aria-pressed',String(item.finish===value));
+      option.onclick=()=>{item.finish=value; item.price=item.prices[item.finish]; if(currentEntry===item){currentFinish=item.finish; paintPrices(item);} updateSession();};
+      toggle.append(option);
+    }
+    const remove=document.createElement('button'); remove.type='button'; remove.className='remove'; remove.dataset.action='remove';
+    remove.innerHTML='<svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>'; remove.append((item.quantity||1)>1?'Retirer un exemplaire':'Supprimer la carte');
+    remove.onclick=()=>{lastRemoved={item,index:session.indexOf(item),decrement:(item.quantity||1)>1}; if(lastRemoved.decrement) item.quantity--; else session.splice(lastRemoved.index,1); updateSession(); showUndo();};
+    controls.append(prices,toggle,remove); row.append(summary,controls); $('history').append(row);
     if(focusEntry===item.entryId && focusAction) row.querySelector(`[data-action="${focusAction}"]`)?.focus({preventScroll:true});
   }
+}
+
+let undoTimer = null;
+function showUndo() { $('undo-delete').hidden=false; clearTimeout(undoTimer); undoTimer=setTimeout(()=>{ $('undo-delete').hidden=true; lastRemoved=null; }, 6000); }
+
+function setCamera(running) {
+  scannerStarted = running;
+  $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
+  els.toggle.dataset.running = String(running);
+  $('viewfinder').dataset.live = String(running);
 }
 
 function setStatus(message, error = false) {
@@ -102,7 +126,7 @@ async function loadScanner() {
       scanIntervalMs: 700, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: true,
       onReady() {
         scannerReady = true;
-        els.mode.textContent = 'IA prête';
+        els.mode.textContent = 'Moteur prêt';
         setStatus('Moteur prêt. Appuie sur Démarrer puis présente une carte entière.');
       },
       onProgress(progress) {
@@ -131,9 +155,9 @@ async function toggleScanner() {
     if (audioContext.state === 'suspended') await audioContext.resume();
     const instance = await loadScanner();
     if (scannerStarted) {
-      instance.stop(); scannerStarted = false; els.toggle.textContent = 'Démarrer le scanner'; setStatus('Scanner arrêté.');
+      instance.stop(); setCamera(false); setStatus('Scanner arrêté.');
     } else {
-      await instance.start(); scannerStarted = true; els.toggle.textContent = 'Arrêter le scanner';
+      await instance.start(); setCamera(true);
       setStatus(scannerReady ? 'Présente une carte entière à la caméra.' : 'Caméra prête, chargement du modèle…');
     }
   } catch (error) {
@@ -154,7 +178,7 @@ async function handleVisualMatch(match) {
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
     const card = await response.json();
     const entry = addCardToSession(card);
-    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card, false);}
+    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card);}
     beep(); queryPlayinPrice(card, entry);
     if (navigator.vibrate) navigator.vibrate(80);
     const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
@@ -179,7 +203,7 @@ function beep() {
 async function lookupCard(set, number) {
   set = set.trim().toLowerCase(); number = number.trim();
   if (!set || !number) return setStatus('Indique le code d’édition et le numéro.', true);
-  setStatus('Identification via Scryfall…'); els.result.hidden = true;
+  setStatus('Identification via Scryfall…');
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
     if (!response.ok) throw new Error(response.status === 404 ? 'carte introuvable' : `Scryfall ${response.status}`);
@@ -187,15 +211,14 @@ async function lookupCard(set, number) {
   } catch (error) { setStatus(`Identification impossible : ${error.message}.`, true); }
 }
 
-function renderCard(card, shouldScroll = true) {
-  $('overlay-name').textContent=card.printed_name || card.name;
-  $('foil-price').textContent='Recherche…';
+function renderCard(card) {
+  els.name.textContent = card.printed_name || card.name;
+  els.meta.textContent = `${card.set_name} · ${card.set.toUpperCase()} #${card.collector_number}`;
+  els.thumb.replaceChildren();
+  const face = card.card_faces?.[0] || card; const src = face.image_uris?.small || card.image_uris?.small || '';
+  if (/^https:\/\/(cards|images)\.scryfall\.io\//.test(src)) { const img = document.createElement('img'); img.alt = ''; img.src = src; els.thumb.append(img); }
+  els.price.textContent = '…'; $('foil-price').textContent = '…'; els.priceNote.textContent = 'Recherche du prix de rachat sur Playin…';
   $('choose-normal').setAttribute('aria-pressed','true'); $('choose-foil').setAttribute('aria-pressed','false');
-  const face = card.card_faces?.[0] || card; els.image.src = face.image_uris?.normal || face.image_uris?.small || ''; els.image.alt = card.name;
-  els.name.textContent = card.printed_name || card.name; els.cardSet.textContent = card.set_name;
-  els.meta.textContent = `${card.set.toUpperCase()} · #${card.collector_number} · ${card.lang.toUpperCase()}${card.foil ? ' · foil possible' : ''}`;
-  els.price.textContent = 'Recherche…'; els.priceNote.textContent = 'Recherche de la bonne impression sur Playin.';
-  els.result.hidden = false;
 }
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(searchName(card))}`; }
@@ -214,9 +237,10 @@ function parsePlayinRows(html) {
   }).filter((row) => row.variants.length);
 }
 
+const priceText = (value) => Number.isFinite(value) ? money(value) : '—';
 function paintPrices(item) {
-  els.price.textContent=money(item.prices.normal); $('foil-price').textContent=money(item.prices.foil);
-  els.priceNote.textContent=`${item.prices.edition || ''} · ${item.language} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} pour le total. Édition à vérifier.`;
+  els.price.textContent=priceText(item.prices.normal); $('foil-price').textContent=priceText(item.prices.foil);
+  els.priceNote.textContent=`${item.prices.edition || 'Édition inconnue'} · ${item.language.toUpperCase()} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total. Vérifie l’édition.${Number.isFinite(item.prices[item.finish])?'':` Pas de tarif ${item.finish==='foil'?'Foil':'Normal'}.`}`;
   $('choose-normal').setAttribute('aria-pressed',String(item.finish==='normal'));
   $('choose-foil').setAttribute('aria-pressed',String(item.finish==='foil'));
 }
@@ -261,7 +285,7 @@ async function queryPlayinPrice(card, entry = null) {
     if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
   } catch (error) {
     if(entry) {entry.priceState='Prix indisponible'; updateSession();}
-    if(currentCard===card) {els.price.textContent = 'Indisponible'; $('foil-price').textContent='Indisponible'; els.priceNote.textContent = `Playin n’a pas répondu (${error.message}).`;}
+    if(currentCard===card) {els.price.textContent = '—'; $('foil-price').textContent='—'; els.priceNote.textContent = `Prix indisponible : Playin n’a pas répondu (${error.message}).`;}
   }
 }
 
@@ -280,10 +304,11 @@ for(const id of ['history-search','history-min','history-max']) $(id).addEventLi
 for(const id of ['history-sort','history-period']) $(id).addEventListener('change',()=>{historyLimit=30; renderHistory();});
 $('reset-filters').addEventListener('click',()=>{for(const id of ['history-search','history-min','history-max']) $(id).value=''; $('history-sort').value='newest'; $('history-period').value='all'; historyLimit=30; renderHistory();});
 $('history-more').addEventListener('click',()=>{historyLimit+=30; renderHistory();});
-$('undo-delete').addEventListener('click',()=>{if(lastRemoved){if(lastRemoved.decrement) lastRemoved.item.quantity++; else session.splice(Math.min(lastRemoved.index,session.length),0,lastRemoved.item); lastRemoved=null; updateSession();} $('undo-delete').hidden=true;});
+$('undo-delete').addEventListener('click',()=>{if(lastRemoved){if(lastRemoved.decrement) lastRemoved.item.quantity++; else session.splice(Math.min(lastRemoved.index,session.length),0,lastRemoved.item); lastRemoved=null; updateSession();} clearTimeout(undoTimer); $('undo-delete').hidden=true;});
+for(const [button,panel] of [['more-toggle','more-panel'],['filters-toggle','filters']]) $(button).addEventListener('click',()=>{const open=$(panel).hidden; $(panel).hidden=!open; $(button).setAttribute('aria-expanded',String(open));});
 for(const view of ['scanner','collection']) $('tab-'+view).addEventListener('click',()=>{
   for(const name of ['scanner','collection']) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false'); $('tab-'+name).setAttribute('aria-selected',String(name===view));}
-  if(view==='collection' && scannerStarted) {scanner.stop(); scannerStarted=false; els.toggle.textContent='Démarrer le scanner'; setStatus('Scanner en pause pendant la consultation de la collection.');}
+  if(view==='collection' && scannerStarted) {scanner.stop(); setCamera(false); setStatus('Scanner en pause pendant la consultation de la collection.');}
   window.scrollTo({top:0,behavior:'instant'});
 });
 function updateNetwork() { els.network.textContent = navigator.onLine ? 'En ligne' : 'Hors ligne'; els.network.classList.toggle('offline', !navigator.onLine); }

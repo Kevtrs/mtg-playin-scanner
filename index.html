@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#111827" />
+    <meta name="theme-color" content="#0b0f15" />
+    <meta name="color-scheme" content="dark" />
     <meta name="description" content="Scanner une carte Magic et retrouver son prix de rachat Playin." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="MTG Playin" />
     <link rel="manifest" href="./manifest.webmanifest" />
@@ -14,84 +16,177 @@
     <title>MTG Playin Scanner</title>
   </head>
   <body>
-    <main class="app">
-      <header>
-        <div><p class="eyebrow">Scanner mobile</p><h1>MTG → Playin</h1></div>
-        <span id="network" class="pill">En ligne</span>
-      </header>
-      <nav class="view-tabs" role="tablist" aria-label="Navigation"><button id="tab-scanner" role="tab" aria-selected="true" aria-current="page" aria-controls="scanner-view">Scanner</button><button id="tab-collection" role="tab" aria-selected="false" aria-controls="collection-view">Collection <span id="collection-count">0</span></button></nav>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M8 12h8"/></symbol>
+        <symbol id="i-stack" viewBox="0 0 24 24"><rect x="7" y="3" width="13" height="17" rx="2"/><path d="M4 7v12a2 2 0 0 0 2 2h10"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></symbol>
+        <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      </defs>
+    </svg>
 
-      <div id="scanner-view">
-      <section class="camera-card cv-host">
-        <div id="cv-scanner" class="cv-scanner">
-          <div class="placeholder"><span>◈</span><p>Le moteur de reconnaissance visuelle se charge au premier lancement.</p></div>
-        </div>
-        <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
-        <div class="scan-price" aria-live="polite">
-          <strong id="overlay-name">Présente une carte</strong>
-          <div class="price-box">
-            <span>Rachat Playin <select id="price-language" aria-label="Langue du prix"><option value="Fr">FR</option><option value="En">EN</option></select> · Mint/Nmint</span>
-            <div class="finish-prices"><button id="choose-normal" aria-pressed="true">Normal <strong id="playin-price">—</strong></button><button id="choose-foil" aria-pressed="false">Foil <strong id="foil-price">—</strong></button></div>
-            <small id="price-note">Normal sélectionné pour le total. Touche Foil si ta carte est brillante.</small>
+    <div class="app">
+      <main class="views">
+        <!-- ── Scanner ─────────────────────────────────────────── -->
+        <section id="scanner-view" class="view" aria-labelledby="tab-scanner">
+          <div class="viewfinder" id="viewfinder" data-live="false">
+            <div id="cv-scanner" class="cv-scanner">
+              <div class="placeholder">
+                <svg class="i i-lg" aria-hidden="true"><use href="#i-scan" /></svg>
+                <p>La caméra s’active quand tu appuies sur Démarrer.</p>
+              </div>
+            </div>
+            <div class="guide" aria-hidden="true"><div class="guide-box"><span></span><span></span><span></span><span></span></div></div>
+            <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
+
+            <header class="topbar">
+              <h1>MTG <span aria-hidden="true">→</span> Playin</h1>
+              <div class="chips">
+                <span id="scan" class="chip">Moteur en attente</span>
+                <span id="network" class="chip">En ligne</span>
+              </div>
+            </header>
+            <p id="status" class="status" role="status" aria-live="polite">Prêt.</p>
           </div>
-        </div>
-      </section>
 
-      <div class="actions">
-        <button id="camera-toggle" class="primary">Démarrer le scanner</button>
-        <button id="scan" disabled>Modèle visuel</button>
-      </div>
-      <p id="status" class="status" role="status">Prêt.</p>
-      <p class="scan-hint">Une carte immobile = un seul ajout. Pour deux exemplaires identiques, laisse le cadre vide un instant entre les deux.</p>
+          <section class="sheet" id="sheet" aria-label="Dernière carte">
+            <div class="sheet-id">
+              <div class="thumb" id="card-thumb" aria-hidden="true"></div>
+              <div class="sheet-text">
+                <strong id="overlay-name" class="card-name">Présente une carte</strong>
+                <span id="card-meta" class="card-meta">Une carte entière, bien à plat.</span>
+              </div>
+              <label class="lang"><span class="sr-only">Langue du prix</span>
+                <select id="price-language" aria-label="Langue du prix">
+                  <option value="Fr">FR</option>
+                  <option value="En">EN</option>
+                </select>
+              </label>
+            </div>
 
-      <details class="panel manual-entry">
-        <summary>Identifier une carte manuellement</summary>
-        <form id="lookup-form">
-          <label>Code d’édition<input id="set-code" maxlength="8" placeholder="MKM" autocapitalize="characters" /></label>
-          <label>Numéro<input id="collector-number" maxlength="16" placeholder="123" inputmode="text" /></label>
-          <button class="primary" type="submit">Identifier la carte</button>
-        </form>
-      </details>
+            <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
+              <button id="choose-normal" class="price" aria-pressed="true">
+                <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
+                <strong id="playin-price">—</strong>
+              </button>
+              <button id="choose-foil" class="price" aria-pressed="false">
+                <span class="price-label">Foil <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
+                <strong id="foil-price">—</strong>
+              </button>
+            </div>
+            <p id="price-note" class="price-note">Touche Foil si ta carte est brillante.</p>
 
-      <section id="result" class="panel result" hidden>
-        <img id="card-image" alt="" />
-        <div><p id="card-set" class="muted"></p><h2 id="card-name"></h2><p id="card-meta"></p></div>
-        <div class="result-actions">
-          <button id="playin-check" class="primary">Chercher sur Playin</button>
-          <button id="add-session">Ajouter à la session</button>
-        </div>
-      </section>
-      </div>
+            <div class="controls">
+              <button id="camera-toggle" class="btn btn-primary" data-running="false">
+                <svg class="i icon-play" aria-hidden="true"><use href="#i-play" /></svg>
+                <svg class="i icon-stop" aria-hidden="true"><use href="#i-stop" /></svg>
+                <span id="camera-label">Démarrer le scanner</span>
+              </button>
+              <button id="more-toggle" class="btn btn-icon" aria-expanded="false" aria-controls="more-panel" aria-label="Plus d’actions">
+                <svg class="i" aria-hidden="true"><use href="#i-more" /></svg>
+              </button>
+            </div>
 
-      <div id="collection-view" hidden>
-      <section class="panel summary">
-        <div><span>Cartes</span><strong id="count">0</strong></div>
-        <div><span>Total connu</span><strong id="total">0,00 €</strong><small id="unpriced"></small></div>
-        <button id="clear-session" class="text-button">Tout vider</button>
-      </section>
+            <div id="more-panel" class="more" hidden>
+              <div class="more-actions">
+                <button id="playin-check" class="btn btn-quiet"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg>Voir sur Playin</button>
+                <button id="add-session" class="btn btn-quiet" aria-label="Ajouter à la collection"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
+              </div>
+              <form id="lookup-form">
+                <p class="form-title">Identifier à la main</p>
+                <label>Édition<input id="set-code" maxlength="8" placeholder="MKM" autocapitalize="characters" autocomplete="off" /></label>
+                <label>Numéro<input id="collector-number" maxlength="16" placeholder="123" inputmode="text" autocomplete="off" /></label>
+                <button class="btn btn-secondary" type="submit">Identifier</button>
+              </form>
+            </div>
+          </section>
+        </section>
 
-      <section class="collection-panel">
-        <div class="collection-heading"><div><p class="eyebrow">Ta collection</p><h2>Cartes scannées</h2></div><button id="reset-filters" class="subtle-button">Réinitialiser</button></div>
-        <div class="history-toolbar">
-          <label class="search-label"><span>Rechercher</span><input id="history-search" type="search" placeholder="Nom, édition, numéro…" /></label>
-          <div class="toolbar-pair"><label>Trier<select id="history-sort"><option value="newest">Plus récentes</option><option value="oldest">Plus anciennes</option><option value="price-desc">Prix décroissant</option><option value="price-asc">Prix croissant</option></select></label><label>Période<select id="history-period"><option value="all">Toutes les dates</option><option value="today">Aujourd’hui</option><option value="7d">7 derniers jours</option><option value="30d">30 derniers jours</option></select></label></div>
-          <div class="toolbar-pair"><label>Prix min. (€)<input id="history-min" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" /></label><label>Prix max. (€)<input id="history-max" type="number" min="0" step="0.01" placeholder="Sans limite" inputmode="decimal" /></label></div>
-        </div>
-        <p id="history-summary" class="history-summary" aria-live="polite"></p>
-        <div id="history"></div>
-        <button id="undo-delete" class="undo-delete" hidden>Carte retirée · Annuler</button>
-        <button id="history-more" class="load-more" hidden>Afficher 30 de plus</button>
-        <p class="storage-note">Enregistré sur cet appareil · prix unitaires de la finition choisie</p>
-      </section>
-      </div>
-      <p class="credits">Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur l’iPhone. <a href="https://github.com/Kevtrs/mtg-playin-scanner" target="_blank" rel="noopener">Code source</a> (AGPL-3.0).</p>
+        <!-- ── Collection ──────────────────────────────────────── -->
+        <section id="collection-view" class="view scroll" aria-labelledby="tab-collection" hidden>
+          <div class="collection">
+            <header class="coll-head">
+              <div>
+                <p class="coll-label">Valeur de rachat connue</p>
+                <p class="coll-total"><strong id="total">0,00 €</strong></p>
+                <p id="unpriced" class="coll-unpriced"></p>
+              </div>
+              <p class="coll-count"><strong id="count">0</strong> cartes</p>
+            </header>
 
-      <aside id="install-help" class="install-help" hidden>
-        <button id="close-install" aria-label="Fermer">×</button>
-        <strong>Installer sur l’iPhone</strong>
-        <p>Dans Safari : Partager <span>□↑</span> puis « Sur l’écran d’accueil ».</p>
-      </aside>
-    </main>
+            <div class="searchbar">
+              <label class="search"><span class="sr-only">Rechercher une carte</span>
+                <svg class="i" aria-hidden="true"><use href="#i-search" /></svg>
+                <input id="history-search" type="search" placeholder="Nom, édition, numéro" autocomplete="off" />
+              </label>
+              <button id="filters-toggle" class="btn btn-secondary btn-filter" aria-expanded="false" aria-controls="filters">
+                <svg class="i" aria-hidden="true"><use href="#i-sliders" /></svg>Filtres
+              </button>
+            </div>
+
+            <div id="filters" class="filters" hidden>
+              <label>Trier
+                <select id="history-sort">
+                  <option value="newest">Plus récentes</option>
+                  <option value="oldest">Plus anciennes</option>
+                  <option value="price-desc">Prix décroissant</option>
+                  <option value="price-asc">Prix croissant</option>
+                </select>
+              </label>
+              <label>Période
+                <select id="history-period">
+                  <option value="all">Toujours</option>
+                  <option value="today">Aujourd’hui</option>
+                  <option value="7d">7 derniers jours</option>
+                  <option value="30d">30 derniers jours</option>
+                </select>
+              </label>
+              <label>Prix min. (€)<input id="history-min" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" /></label>
+              <label>Prix max. (€)<input id="history-max" type="number" min="0" step="0.01" placeholder="Sans limite" inputmode="decimal" /></label>
+              <button id="reset-filters" class="btn btn-quiet">Réinitialiser les filtres</button>
+            </div>
+
+            <p id="history-summary" class="history-summary" aria-live="polite"></p>
+            <div id="history" class="history"></div>
+            <button id="history-more" class="btn btn-secondary load-more" hidden>Afficher 30 de plus</button>
+
+            <footer class="coll-foot">
+              <button id="clear-session" class="btn btn-danger">Vider la collection</button>
+              <p>Enregistrée sur cet appareil. Prix unitaires de la finition choisie.</p>
+              <p>Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur ton iPhone. <a href="https://github.com/Kevtrs/mtg-playin-scanner" target="_blank" rel="noopener">Code source</a>.</p>
+            </footer>
+          </div>
+        </section>
+
+        <button id="undo-delete" class="toast-action" hidden>Carte retirée <span>Annuler</span></button>
+
+        <aside id="install-help" class="install-help" hidden>
+          <div>
+            <strong>Installer sur l’iPhone</strong>
+            <p>Dans Safari : Partager, puis « Sur l’écran d’accueil ».</p>
+          </div>
+          <button id="close-install" class="btn-icon" aria-label="Fermer"><svg class="i" aria-hidden="true"><use href="#i-close" /></svg></button>
+        </aside>
+      </main>
+
+      <nav class="tabbar" role="tablist" aria-label="Navigation">
+        <button id="tab-scanner" role="tab" aria-selected="true" aria-current="page" aria-controls="scanner-view">
+          <svg class="i" aria-hidden="true"><use href="#i-scan" /></svg><span>Scanner</span>
+        </button>
+        <button id="tab-collection" role="tab" aria-selected="false" aria-controls="collection-view">
+          <svg class="i" aria-hidden="true"><use href="#i-stack" /></svg><span>Collection</span><b id="collection-count" class="badge">0</b>
+        </button>
+      </nav>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
