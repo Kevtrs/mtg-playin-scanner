@@ -1,5 +1,7 @@
 import './style.css';
 import { ScanGate, selectHistory } from './collection.js';
+import { priceData } from './playin.js';
+import { loadSession, saveSession } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -23,7 +25,7 @@ const scanGate = new ScanGate();
 let historyLimit = 30;
 let lastRemoved = null;
 const openHistory = new Set();
-const session = JSON.parse(localStorage.getItem('mtg-session') || '[]');
+const session = loadSession();
 for (const item of session) {
   item.entryId ||= crypto.randomUUID();
   if (!item.prices) { item.prices = { normal:null, foil:null }; item.price = null; item.priceState = 'Ancien tarif à vérifier'; }
@@ -85,7 +87,7 @@ function updateSession() {
   els.total.textContent = sum.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
   const unknown=session.reduce((sum,item)=>sum+(Number.isFinite(item.price)?0:(item.quantity||1)),0);
   $('unpriced').textContent=unknown ? `${unknown} sans tarif confirmé` : '';
-  localStorage.setItem('mtg-session', JSON.stringify(session));
+  if(!saveSession(session)) setStatus('Stockage plein ou bloqué : la collection ne peut pas être sauvegardée.', true);
   renderHistory();
 }
 
@@ -194,25 +196,6 @@ function renderCard(card, shouldScroll = true) {
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(card.name)}`; }
 
-function normalizedWords(value) {
-  const stop = new Set(['the', 'of', 'at', 'and', 'a', 'le', 'la', 'les', 'de', 'des', 'du', 'au', 'aux', 'et', 'edition', 'ed']);
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter((word) => word && !stop.has(word));
-}
-
-function printingScore(row, card) {
-  const wanted = new Set(normalizedWords(card.set_name));
-  const found = normalizedWords(row.edition);
-  let score = found.reduce((sum, word) => sum + (wanted.has(word) ? Math.max(2, word.length) : 0), 0);
-  const setNorm = normalizedWords(card.set_name).join(' ');
-  const editionNorm = found.join(' ');
-  if (setNorm === editionNorm) score += 50;
-  if (row.nameEn.toLowerCase() === card.name.toLowerCase()) score += 8;
-  const special = card.promo || card.full_art || card.frame_effects?.some((effect) => ['extendedart', 'showcase', 'inverted', 'etched'].includes(effect));
-  const extras = /extra|promo|showcase|special|borderless|etendue|extended/i.test(row.edition + ' ' + row.nameEn);
-  if (special === extras) score += 5;
-  return score;
-}
-
 function parsePlayinRows(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   return [...doc.querySelectorAll('.filterElement.cards')].map((row) => {
@@ -225,12 +208,6 @@ function parsePlayinRows(html) {
     }));
     return { nameFr: names[0] || '', nameEn: names[1] || names[0] || '', edition, variants };
   }).filter((row) => row.variants.length);
-}
-
-function priceData(card, rows, language) {
-  const bestRow = [...rows].sort((a,b)=>printingScore(b,card)-printingScore(a,card))[0];
-  const variants = bestRow?.variants.filter(v=>v.label.startsWith(language+' ') && /Mint\/Nmint/i.test(v.label)) || [];
-  return {normal:variants.find(v=>!v.foil)?.price ?? null, foil:variants.find(v=>v.foil)?.price ?? null, edition:bestRow?.edition || ''};
 }
 
 function paintPrices(item) {
@@ -246,15 +223,36 @@ function showBestPlayinPrice() {
   paintPrices(item); updateSession();
 }
 
+const playinCache = new Map();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPlayinRows(name) {
+  const key = name.toLowerCase();
+  if (playinCache.has(key)) return playinCache.get(key);
+  const readerUrl = `https://r.jina.ai/https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(name)}`;
+  let lastError;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const response = await fetch(readerUrl, { headers: { 'X-Return-Format': 'html' } });
+      if (response.status === 429 || response.status >= 500) throw new Error(`relais HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`relais HTTP ${response.status}`);
+      const rows = parsePlayinRows(await response.text());
+      if (!rows.length) throw new Error('aucun tarif trouvé');
+      playinCache.set(key, rows);
+      return rows;
+    } catch (error) {
+      lastError = error;
+      if (error.message === 'aucun tarif trouvé') break;
+      await sleep(1500 * 2 ** attempt);
+    }
+  }
+  throw lastError;
+}
+
 async function queryPlayinPrice(card, entry = null) {
   if(currentCard===card) currentPlayinRows = [];
-  const sourceUrl = `http://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(card.name)}`;
-  const readerUrl = `https://r.jina.ai/${sourceUrl}`;
   try {
-    const response = await fetch(readerUrl, { headers: { 'X-Return-Format': 'html' } });
-    if (!response.ok) throw new Error(`relais HTTP ${response.status}`);
-    const rows = parsePlayinRows(await response.text());
-    if (!rows.length) throw new Error('aucun tarif trouvé');
+    const rows = await fetchPlayinRows(card.name);
     if(entry) { entry.prices=priceData(card,rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
     if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
   } catch (error) {
