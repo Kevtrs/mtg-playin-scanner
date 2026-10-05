@@ -25,6 +25,14 @@
           <div class="placeholder"><span>◈</span><p>Le moteur de reconnaissance visuelle se charge au premier lancement.</p></div>
         </div>
         <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
+        <div class="scan-price" aria-live="polite">
+          <strong id="overlay-name">Présente une carte</strong>
+          <div class="price-box">
+            <span>Rachat Playin <select id="price-language" aria-label="Langue du prix"><option value="Fr">FR</option><option value="En">EN</option></select> · Mint/Nmint</span>
+            <div class="finish-prices"><button id="choose-normal" aria-pressed="true">Normal <strong id="playin-price">—</strong></button><button id="choose-foil" aria-pressed="false">Foil <strong id="foil-price">—</strong></button></div>
+            <small id="price-note">Normal sélectionné pour le total. Touche Foil si ta carte est brillante.</small>
+          </div>
+        </div>
       </section>
 
       <div class="actions">
@@ -45,10 +53,6 @@
       <section id="result" class="panel result" hidden>
         <img id="card-image" alt="" />
         <div><p id="card-set" class="muted"></p><h2 id="card-name"></h2><p id="card-meta"></p></div>
-        <div class="price-box">
-          <span>Rachat Playin <select id="price-language" aria-label="Langue du prix"><option value="Fr">FR</option><option value="En">EN</option></select></span><strong id="playin-price">Recherche…</strong>
-          <small id="price-note">Le prix exact dépend de la langue, de l’état et du foil.</small>
-        </div>
         <div class="result-actions">
           <button id="playin-check" class="primary">Chercher sur Playin</button>
           <button id="add-session">Ajouter à la session</button>
@@ -57,10 +61,11 @@
 
       <section class="panel summary">
         <div><span>Cartes</span><strong id="count">0</strong></div>
-        <div><span>Total connu</span><strong id="total">0,00 €</strong></div>
+        <div><span>Total connu</span><strong id="total">0,00 €</strong><small id="unpriced"></small></div>
         <button id="clear-session" class="text-button">Vider</button>
       </section>
 
+      <section class="panel"><h2>Historique des cartes</h2><p class="muted">Conservé sur cet appareil. Choisis la finition de chaque carte pour le total.</p><div id="history"></div></section>
       <p class="credits">Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur l’iPhone.</p>
 
       <aside id="install-help" class="install-help" hidden>

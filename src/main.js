@@ -15,7 +15,34 @@ let currentCard = null;
 let currentPrice = null;
 let currentPlayinRows = [];
 let audioContext = null;
+let currentEntry = null;
+let currentFinish = 'normal';
+let lookupSequence = 0;
 const session = JSON.parse(localStorage.getItem('mtg-session') || '[]');
+for (const item of session) {
+  item.entryId ||= crypto.randomUUID();
+  if (!item.prices) { item.prices = { normal:null, foil:null }; item.price = null; item.priceState = 'Ancien tarif à vérifier'; }
+  item.finish ||= 'normal';
+}
+const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', {style:'currency',currency:'EUR'}) : 'Indisponible';
+
+function renderHistory() {
+  $('history').replaceChildren();
+  if (!session.length) $('history').textContent = 'Aucune carte enregistrée.';
+  for (const item of [...session].reverse()) {
+    const row = document.createElement('article'); row.className = 'history-item';
+    const name = document.createElement('strong'); name.textContent = `${item.quantity || 1} × ${item.name}`;
+    const info = document.createElement('small'); info.textContent = `${item.set?.toUpperCase()} #${item.number} · ${item.language || 'Fr'} · Mint/Nmint · ${item.priceState || ''}`;
+    const prices = document.createElement('span'); prices.textContent = `Normal : ${money(item.prices.normal)} / Foil : ${money(item.prices.foil)}`;
+    const select = document.createElement('select'); select.setAttribute('aria-label', `Finition de ${item.name}`);
+    for (const [value,label] of [['normal','Normal'],['foil','Foil']]) { const option=document.createElement('option'); option.value=value; option.textContent=label; select.append(option); }
+    select.value=item.finish;
+    select.onchange=()=>{ item.finish=select.value; item.price=item.prices[item.finish]; if(currentEntry===item){currentFinish=item.finish; paintPrices(item);} updateSession(); };
+    const remove = document.createElement('button'); remove.className='remove'; remove.textContent=(item.quantity||1)>1 ? 'Supprimer un exemplaire' : 'Supprimer cette carte';
+    remove.onclick=()=>{ if((item.quantity||1)>1) item.quantity--; else session.splice(session.indexOf(item),1); updateSession(); };
+    row.append(name,info,prices,select,remove); $('history').append(row);
+  }
+}
 
 function setStatus(message, error = false) {
   els.status.textContent = message;
@@ -26,7 +53,10 @@ function updateSession() {
   els.count.textContent = session.reduce((sum, item) => sum + (item.quantity || 1), 0);
   const sum = session.reduce((acc, item) => acc + (Number(item.price) || 0) * (item.quantity || 1), 0);
   els.total.textContent = sum.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  const unknown=session.reduce((sum,item)=>sum+(Number.isFinite(item.price)?0:(item.quantity||1)),0);
+  $('unpriced').textContent=unknown ? `${unknown} sans tarif confirmé` : '';
   localStorage.setItem('mtg-session', JSON.stringify(session));
+  renderHistory();
 }
 
 async function loadScanner() {
@@ -74,12 +104,15 @@ async function toggleScanner() {
 }
 
 async function handleVisualMatch(match) {
+  const sequence = ++lookupSequence;
   setStatus(`Carte détectée (${Math.round(match.score * 100)} %). Identification…`);
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(match.cardId)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
-    const card = await response.json(); currentCard = card; currentPrice = null;
-    renderCard(card, false); addCardToSession(card); beep(); queryPlayinPrice(card);
+    const card = await response.json();
+    const entry = addCardToSession(card);
+    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card, false);}
+    beep(); queryPlayinPrice(card, entry);
     if (navigator.vibrate) navigator.vibrate(80);
     const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
     setStatus(`${card.name} reconnue ✓ Présente la suivante.`);
@@ -87,10 +120,10 @@ async function handleVisualMatch(match) {
 }
 
 function addCardToSession(card) {
-  const last = session[session.length - 1];
-  if (last?.id === card.id) last.quantity = (last.quantity || 1) + 1;
-  else session.push({ id: card.id, name: card.name, set: card.set, number: card.collector_number, price: null, quantity: 1 });
+  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, set: card.set, number: card.collector_number, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:els.priceLanguage.value, priceState:'Recherche…', scannedAt:new Date().toISOString() };
+  session.push(item);
   updateSession();
+  return item;
 }
 
 function beep() {
@@ -107,16 +140,19 @@ async function lookupCard(set, number) {
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
     if (!response.ok) throw new Error(response.status === 404 ? 'carte introuvable' : `Scryfall ${response.status}`);
-    currentCard = await response.json(); currentPrice = null; renderCard(currentCard); queryPlayinPrice(currentCard); setStatus('Carte identifiée.');
+    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; currentPrice = null; renderCard(currentCard); queryPlayinPrice(currentCard); setStatus('Carte identifiée.');
   } catch (error) { setStatus(`Identification impossible : ${error.message}.`, true); }
 }
 
 function renderCard(card, shouldScroll = true) {
+  $('overlay-name').textContent=card.printed_name || card.name;
+  $('foil-price').textContent='Recherche…';
+  $('choose-normal').setAttribute('aria-pressed','true'); $('choose-foil').setAttribute('aria-pressed','false');
   const face = card.card_faces?.[0] || card; els.image.src = face.image_uris?.normal || face.image_uris?.small || ''; els.image.alt = card.name;
   els.name.textContent = card.printed_name || card.name; els.cardSet.textContent = card.set_name;
   els.meta.textContent = `${card.set.toUpperCase()} · #${card.collector_number} · ${card.lang.toUpperCase()}${card.foil ? ' · foil possible' : ''}`;
   els.price.textContent = 'Recherche…'; els.priceNote.textContent = 'Recherche de la bonne impression sur Playin.';
-  els.result.hidden = false; if (shouldScroll) els.result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.result.hidden = false;
 }
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(card.name)}`; }
@@ -154,35 +190,39 @@ function parsePlayinRows(html) {
   }).filter((row) => row.variants.length);
 }
 
-function showBestPlayinPrice() {
-  if (!currentCard || !currentPlayinRows.length) return;
-  const bestRow = [...currentPlayinRows].sort((a, b) => printingScore(b, currentCard) - printingScore(a, currentCard))[0];
-  const language = els.priceLanguage.value;
-  const wantedFoil = currentCard.foil && !currentCard.nonfoil;
-  const variants = bestRow.variants.filter((variant) => variant.label.startsWith(language) && /Mint\/Nmint/i.test(variant.label));
-  const chosen = variants.find((variant) => variant.foil === wantedFoil) || variants[0] || bestRow.variants.find((variant) => /Mint\/Nmint/i.test(variant.label)) || bestRow.variants[0];
-  currentPrice = chosen?.price ?? null;
-  if (currentPrice == null) return;
-  els.price.textContent = currentPrice.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
-  els.priceNote.textContent = `${bestRow.edition} · ${chosen.label}. Vérifie la variante si nécessaire.`;
-  const item = [...session].reverse().find((entry) => entry.id === currentCard.id);
-  if (item) { item.price = currentPrice; updateSession(); }
+function priceData(card, rows, language) {
+  const bestRow = [...rows].sort((a,b)=>printingScore(b,card)-printingScore(a,card))[0];
+  const variants = bestRow?.variants.filter(v=>v.label.startsWith(language+' ') && /Mint\/Nmint/i.test(v.label)) || [];
+  return {normal:variants.find(v=>!v.foil)?.price ?? null, foil:variants.find(v=>v.foil)?.price ?? null, edition:bestRow?.edition || ''};
 }
 
-async function queryPlayinPrice(card) {
-  currentPlayinRows = [];
-  els.price.textContent = 'Recherche…';
+function paintPrices(item) {
+  els.price.textContent=money(item.prices.normal); $('foil-price').textContent=money(item.prices.foil);
+  els.priceNote.textContent=`${item.prices.edition || ''} · ${item.language} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} pour le total. Édition à vérifier.`;
+  $('choose-normal').setAttribute('aria-pressed',String(item.finish==='normal'));
+  $('choose-foil').setAttribute('aria-pressed',String(item.finish==='foil'));
+}
+function showBestPlayinPrice() {
+  if(!currentCard || !currentPlayinRows.length) return;
+  const item=currentEntry || {finish:currentFinish};
+  item.language=els.priceLanguage.value; item.prices=priceData(currentCard,currentPlayinRows,item.language); item.price=item.prices[item.finish];
+  paintPrices(item); updateSession();
+}
+
+async function queryPlayinPrice(card, entry = null) {
+  if(currentCard===card) currentPlayinRows = [];
   const sourceUrl = `http://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(card.name)}`;
   const readerUrl = `https://r.jina.ai/${sourceUrl}`;
   try {
     const response = await fetch(readerUrl, { headers: { 'X-Return-Format': 'html' } });
     if (!response.ok) throw new Error(`relais HTTP ${response.status}`);
-    currentPlayinRows = parsePlayinRows(await response.text());
-    if (!currentPlayinRows.length) throw new Error('aucun tarif trouvé');
-    showBestPlayinPrice();
+    const rows = parsePlayinRows(await response.text());
+    if (!rows.length) throw new Error('aucun tarif trouvé');
+    if(entry) { entry.prices=priceData(card,rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
+    if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
   } catch (error) {
-    els.price.textContent = 'Indisponible';
-    els.priceNote.textContent = `Playin n’a pas répondu (${error.message}). Touche « Chercher sur Playin » pour vérifier.`;
+    if(entry) {entry.priceState='Prix indisponible'; updateSession();}
+    if(currentCard===card) {els.price.textContent = 'Indisponible'; $('foil-price').textContent='Indisponible'; els.priceNote.textContent = `Playin n’a pas répondu (${error.message}).`;}
   }
 }
 
@@ -194,7 +234,8 @@ els.toggle.addEventListener('click', toggleScanner);
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
 els.playin.addEventListener('click', checkPlayin);
 els.priceLanguage.addEventListener('change', showBestPlayinPrice);
-els.add.addEventListener('click', () => { if (currentCard) { addCardToSession(currentCard); setStatus(`${currentCard.name} ajoutée.`); } });
+els.add.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); } });
+for(const finish of ['normal','foil']) $('choose-'+finish).addEventListener('click',()=>{currentFinish=finish; if(currentEntry) currentEntry.finish=finish; showBestPlayinPrice();});
 els.clear.addEventListener('click', () => { session.length = 0; updateSession(); });
 function updateNetwork() { els.network.textContent = navigator.onLine ? 'En ligne' : 'Hors ligne'; els.network.classList.toggle('offline', !navigator.onLine); }
 window.addEventListener('online', updateNetwork); window.addEventListener('offline', updateNetwork); updateNetwork(); updateSession();
