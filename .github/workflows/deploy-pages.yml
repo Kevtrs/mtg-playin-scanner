@@ -7,8 +7,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -16,10 +14,13 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      pages: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -30,7 +31,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git clone --depth 1 https://github.com/HanClinto/CollectorVision.git /tmp/collectorvision
+          # Versions fixées : modifier ces valeurs pour mettre à jour le moteur.
+          CV_COMMIT=2a122d00d25c8d112a90e47bf235a021e0c53b0c
+          CV_ASSETS_SHA256=6138910aedad5108c40bd0f2afffaef216326474594b53c128ad4e9cc158eb97
+          git clone https://github.com/HanClinto/CollectorVision.git /tmp/collectorvision
+          git -C /tmp/collectorvision checkout --detach "$CV_COMMIT"
           mkdir -p dist/cv
           cp -r /tmp/collectorvision/examples/web_scanner/lib dist/cv/
           cp /tmp/collectorvision/examples/web_scanner/scanner.worker.mjs dist/cv/
@@ -40,13 +45,17 @@ jobs:
             --repo HanClinto/CollectorVision \
             --pattern "web-scanner-assets.tar.zst" \
             --dir /tmp/cv-assets
+          echo "$CV_ASSETS_SHA256  /tmp/cv-assets/web-scanner-assets.tar.zst" | sha256sum -c -
           tar --zstd -xf /tmp/cv-assets/web-scanner-assets.tar.zst -C dist/cv assets vendor bundle-metadata.json
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: dist
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -55,4 +64,4 @@ jobs:
     steps:
       - name: Publier
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
