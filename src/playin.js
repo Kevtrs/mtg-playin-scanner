@@ -3,6 +3,9 @@ export function normalizedWords(value) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter((word) => word && !stop.has(word));
 }
 
+// Double-faced cards are listed by their front face ("A // B" -> "A").
+export function searchName(card) { return card.name.split(' // ')[0].trim(); }
+
 export function printingScore(row, card) {
   const wanted = new Set(normalizedWords(card.set_name));
   const found = normalizedWords(row.edition);
@@ -10,7 +13,7 @@ export function printingScore(row, card) {
   const setNorm = normalizedWords(card.set_name).join(' ');
   const editionNorm = found.join(' ');
   if (setNorm === editionNorm) score += 50;
-  if (row.nameEn.toLowerCase() === card.name.toLowerCase()) score += 8;
+  if (row.nameEn.toLowerCase() === searchName(card).toLowerCase() || row.nameEn.toLowerCase() === card.name.toLowerCase()) score += 8;
   // Scryfall omits frame_effects when empty: coerce so "plain" compares equal to "plain".
   const special = Boolean(card.promo || card.full_art || card.frame_effects?.some((effect) => ['extendedart', 'showcase', 'inverted', 'etched'].includes(effect)));
   const extras = /extra|promo|showcase|special|borderless|etendue|extended/i.test(row.edition + ' ' + row.nameEn);

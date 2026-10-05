@@ -1,6 +1,6 @@
 import './style.css';
 import { ScanGate, selectHistory } from './collection.js';
-import { priceData } from './playin.js';
+import { priceData, searchName } from './playin.js';
 import { loadSession, saveSession } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -138,6 +138,10 @@ async function toggleScanner() {
     }
   } catch (error) {
     if (error.name === 'NotAllowedError') setStatus('Autorise la caméra dans les réglages Safari.', true);
+    else if (error.name === 'NotFoundError') setStatus('Aucune caméra détectée.', true);
+    else if (error.name === 'NotReadableError') setStatus('La caméra est utilisée par une autre application.', true);
+    else if (!scanner) return;
+    else setStatus(`Démarrage impossible : ${error.message}`, true);
   }
 }
 
@@ -194,7 +198,7 @@ function renderCard(card, shouldScroll = true) {
   els.result.hidden = false;
 }
 
-function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(card.name)}`; }
+function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(searchName(card))}`; }
 
 function parsePlayinRows(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -252,7 +256,7 @@ async function fetchPlayinRows(name) {
 async function queryPlayinPrice(card, entry = null) {
   if(currentCard===card) currentPlayinRows = [];
   try {
-    const rows = await fetchPlayinRows(card.name);
+    const rows = await fetchPlayinRows(searchName(card));
     if(entry) { entry.prices=priceData(card,rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
     if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
   } catch (error) {
@@ -278,7 +282,7 @@ $('reset-filters').addEventListener('click',()=>{for(const id of ['history-searc
 $('history-more').addEventListener('click',()=>{historyLimit+=30; renderHistory();});
 $('undo-delete').addEventListener('click',()=>{if(lastRemoved){if(lastRemoved.decrement) lastRemoved.item.quantity++; else session.splice(Math.min(lastRemoved.index,session.length),0,lastRemoved.item); lastRemoved=null; updateSession();} $('undo-delete').hidden=true;});
 for(const view of ['scanner','collection']) $('tab-'+view).addEventListener('click',()=>{
-  for(const name of ['scanner','collection']) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false');}
+  for(const name of ['scanner','collection']) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false'); $('tab-'+name).setAttribute('aria-selected',String(name===view));}
   if(view==='collection' && scannerStarted) {scanner.stop(); scannerStarted=false; els.toggle.textContent='Démarrer le scanner'; setStatus('Scanner en pause pendant la consultation de la collection.');}
   window.scrollTo({top:0,behavior:'instant'});
 });

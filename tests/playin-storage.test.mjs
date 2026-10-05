@@ -25,3 +25,8 @@ test('plain card without frame_effects prefers the plain printing over showcase'
   assert.ok(printingScore(plain,card)>printingScore(showcase,card));
   assert.equal(priceData(card,[showcase,plain],'Fr').normal,1);
 });
+import {searchName} from '../src/playin.js';
+test('double-faced cards are searched by their front face',()=>{
+  assert.equal(searchName({name:'Delver of Secrets // Insectile Aberration'}),'Delver of Secrets');
+  assert.equal(searchName({name:'Éclair'}),'Éclair');
+});

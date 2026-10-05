@@ -4,22 +4,11 @@ Application web statique : reconnaissance visuelle locale avec CollectorVision, 
 
 Le moteur [CollectorVision](https://github.com/HanClinto/CollectorVision), ses modèles et son catalogue sont distribués sous licence AGPL-3.0. Le premier lancement télécharge environ 40 Mo, ensuite mis en cache sur l’appareil.
 
-## Mise en ligne (très simple)
+## Mise en ligne
 
-1. Sur GitHub, crée un dépôt public nommé `mtg-playin-scanner` sans ajouter de README.
-2. Dans ce dossier, exécute :
+Le site se déploie automatiquement à chaque push sur `main` (**Settings → Pages → Source → GitHub Actions**). Adresse : `https://<ton-pseudo>.github.io/mtg-playin-scanner/`.
 
-   ```bash
-   git init
-   git add .
-   git commit -m "PWA MTG Playin Scanner"
-   git branch -M main
-   git remote add origin https://github.com/TON-PSEUDO/mtg-playin-scanner.git
-   git push -u origin main
-   ```
-
-3. Dans le dépôt GitHub : **Settings → Pages → Build and deployment → Source → GitHub Actions**.
-4. Attends la coche verte dans l’onglet **Actions**, puis ouvre `https://TON-PSEUDO.github.io/mtg-playin-scanner/`.
+La version de CollectorVision (commit) et l'empreinte SHA256 de ses modèles sont fixées dans `.github/workflows/deploy-pages.yml` : pour mettre le moteur à jour, modifie `CV_COMMIT` et `CV_ASSETS_SHA256`.
 
 ## Installation iPhone
 
@@ -46,6 +35,10 @@ La liste compacte et la barre de filtres s’inspirent des [exemples Flowbite](h
 ## Prix Playin
 
 Après chaque reconnaissance, l’application consulte la recherche publique Playin via le lecteur public Jina AI, sélectionne l’impression la plus proche de l’édition Scryfall et affiche le prix Mint/Nmint FR ou EN. Seuls le nom public de la carte et la page publique Playin sont envoyés au relais ; aucun compte, cookie ou panier n’est utilisé. Le bouton **Chercher sur Playin** reste disponible pour vérifier manuellement une variante.
+
+## Licence
+
+Code distribué sous [GNU AGPL-3.0](LICENSE), comme le moteur CollectorVision qu'il embarque. Le code source complet est ce dépôt.
 
 ## Développement local
 
