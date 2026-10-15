@@ -1,6 +1,7 @@
 import './style.css';
 import { ScanGate, ScanLock, selectHistory } from './collection.js';
 import { priceData, searchName } from './playin.js';
+import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -279,6 +280,15 @@ async function fetchPlayinRows(name) {
   const cached = playinCache.get(key);
   if (cached && Date.now() - cached.t < PRICE_TTL_MS) return cached.rows;
   const readerUrl = `https://r.jina.ai/https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(name)}`;
+  if (PRICE_RELAY_URL) {
+    try {
+      const response = await fetch(`${PRICE_RELAY_URL}/price?name=${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(6000) });
+      if (response.ok) {
+        const rows = parsePlayinRows(await response.text());
+        if (rows.length) { playinCache.set(key, { t: Date.now(), rows }); savePriceCache(playinCache); return rows; }
+      }
+    } catch { /* relay down or blocked: fall back to the public reader below */ }
+  }
   let lastError;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
