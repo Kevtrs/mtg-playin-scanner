@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ScanGate, selectHistory} from '../src/collection.js';
+import {ScanGate, ScanLock, selectHistory} from '../src/collection.js';
 
 test('held card never counts twice, including printing-ID jitter and uncertain frames',()=>{
  const gate=new ScanGate();
@@ -29,4 +29,13 @@ test('price sorting keeps unknown last, zero valid, and min/max compose with per
  assert.deepEqual(selectHistory(items,{period:'today'},now).map(i=>i.name),['Anneau']);
  assert.equal(selectHistory(items,{sort:'oldest'})[0].name,'Ancienne');
  assert.equal(items[0].name,'Anneau');
+});
+test('scan lock blocks while busy and for 2s after finishing',()=>{
+ const lock=new ScanLock(2000);
+ assert.equal(lock.canScan(0),true);
+ lock.start();
+ assert.equal(lock.canScan(10000),false);
+ lock.finish(10000);
+ assert.equal(lock.canScan(11999),false);
+ assert.equal(lock.canScan(12000),true);
 });
