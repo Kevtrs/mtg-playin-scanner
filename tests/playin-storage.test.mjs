@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {printingScore, priceData} from '../src/playin.js';
-import {loadSession, saveSession} from '../src/storage.js';
+import {loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS} from '../src/storage.js';
 
 const mem=(init={})=>({d:{...init},getItem(k){return k in this.d?this.d[k]:null},setItem(k,v){this.d[k]=v}});
 test('corrupt storage yields empty session and keeps a backup',()=>{
@@ -29,4 +29,22 @@ import {searchName} from '../src/playin.js';
 test('double-faced cards are searched by their front face',()=>{
   assert.equal(searchName({name:'Delver of Secrets // Insectile Aberration'}),'Delver of Secrets');
   assert.equal(searchName({name:'Éclair'}),'Éclair');
+});
+
+test('price cache keeps fresh entries, drops expired ones and survives bad data',()=>{
+  const s=mem(); const now=1_000_000_000_000;
+  const c=new Map([['fresh',{t:now-1000,rows:[{a:1}]}],['old',{t:now-PRICE_TTL_MS-1,rows:[{a:2}]}]]);
+  assert.equal(savePriceCache(c,s),true);
+  const back=loadPriceCache(s,now);
+  assert.deepEqual([...back.keys()],['fresh']);
+  assert.equal(loadPriceCache(mem({'mtg-price-cache':'{oops'}),now).size,0);
+  assert.equal(loadPriceCache({getItem(){throw new Error('x')}},now).size,0);
+});
+test('price cache keeps the newest entries when the quota is hit',()=>{
+  let calls=0;
+  const small={d:{},getItem(){return null},setItem(k,v){calls++; if(JSON.parse(v)&&Object.keys(JSON.parse(v)).length>10) throw new Error('quota'); this.d[k]=v;}};
+  const c=new Map(); for(let i=0;i<40;i++) c.set('k'+i,{t:i,rows:[{}]});
+  assert.equal(savePriceCache(c,small),true);
+  const kept=Object.keys(JSON.parse(small.d['mtg-price-cache']));
+  assert.ok(kept.length<=10 && kept.includes('k39'));
 });
