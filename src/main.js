@@ -6,9 +6,8 @@ import { loadSession, saveSession } from './storage.js';
 const $ = (id) => document.getElementById(id);
 const els = {
   toggle: $('camera-toggle'), mode: $('scan'), status: $('status'), form: $('lookup-form'), set: $('set-code'),
-  number: $('collector-number'), thumb: $('card-thumb'), name: $('overlay-name'),
-  meta: $('card-meta'), price: $('playin-price'), priceNote: $('price-note'), playin: $('playin-check'), add: $('add-session'),
-  priceLanguage: $('price-language'), count: $('count'), total: $('total'), clear: $('clear-session'), network: $('network')
+  number: $('collector-number'),
+  count: $('count'), total: $('total'), clear: $('clear-session'), network: $('network')
 };
 
 let scanner = null;
@@ -31,6 +30,11 @@ for (const item of session) {
   if (!item.prices) { item.prices = { normal:null, foil:null }; item.price = null; item.priceState = 'Ancien tarif à vérifier'; }
   item.finish ||= 'normal';
 }
+const priceText = (value) => Number.isFinite(value) ? money(value) : '—';
+const bindAll = (name) => document.querySelectorAll(`[data-bind="${name}"]`);
+const setBind = (name, text) => bindAll(name).forEach((node) => { node.textContent = text; });
+const setPressed = (finish) => document.querySelectorAll('[data-finish]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.finish === finish)));
+const currentLanguage = () => document.querySelector('.js-lang').value;
 const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', {style:'currency',currency:'EUR'}) : 'Indisponible';
 
 function thumbnailFor(item) {
@@ -196,7 +200,7 @@ async function handleVisualMatch(match) {
 }
 
 function addCardToSession(card) {
-  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || '', set: card.set, number: card.collector_number, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:els.priceLanguage.value, priceState:'Recherche…', scannedAt:new Date().toISOString() };
+  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || '', set: card.set, number: card.collector_number, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString() };
   session.push(item);
   updateSession();
   return item;
@@ -209,25 +213,34 @@ function beep() {
   oscillator.connect(gain).connect(audioContext.destination); oscillator.start(); oscillator.stop(audioContext.currentTime + .12);
 }
 
+const LAST_SET_KEY = 'mtg-last-set';
+const setSearchStatus = (message, error = false) => { $('search-status').textContent = message; $('search-status').classList.toggle('error', error); };
+let numberDone = false;
+
 async function lookupCard(set, number) {
-  set = set.trim().toLowerCase(); number = number.trim();
-  if (!set || !number) return setStatus('Indique le code d’édition et le numéro.', true);
-  setStatus('Identification via Scryfall…');
+  set = set.trim().toLowerCase(); number = number.trim().replace(/^0+(?=\d)/, '');
+  if (!set || !number) return setSearchStatus('Indique l’édition et le numéro.', true);
+  try { localStorage.setItem(LAST_SET_KEY, set); } catch {}
+  numberDone = true; els.number.blur();
+  setSearchStatus('Identification via Scryfall…'); $('search-result').hidden = true;
   try {
-    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
-    if (!response.ok) throw new Error(response.status === 404 ? 'carte introuvable' : `Scryfall ${response.status}`);
-    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; currentPrice = null; renderCard(currentCard); queryPlayinPrice(currentCard); setStatus('Carte identifiée.');
-  } catch (error) { setStatus(`Identification impossible : ${error.message}.`, true); }
+    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error(response.status === 404 ? `aucune carte ${set.toUpperCase()} n° ${number}` : `Scryfall ${response.status}`);
+    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; renderCard(currentCard); queryPlayinPrice(currentCard);
+    $('search-result').hidden = false; setSearchStatus('Carte trouvée.');
+  } catch (error) { setSearchStatus(`Identification impossible : ${error.message}.`, true); }
 }
 
 function renderCard(card) {
-  els.name.textContent = card.printed_name || card.name;
-  els.meta.textContent = `${card.set_name} · ${card.set.toUpperCase()} #${card.collector_number}`;
-  els.thumb.replaceChildren();
+  setBind('name', card.printed_name || card.name);
+  setBind('meta', `${card.set_name} · ${card.set.toUpperCase()} #${card.collector_number}`);
   const face = card.card_faces?.[0] || card; const src = face.image_uris?.small || card.image_uris?.small || '';
-  if (/^https:\/\/(cards|images)\.scryfall\.io\//.test(src)) { const img = document.createElement('img'); img.alt = ''; img.src = src; els.thumb.append(img); }
-  els.price.textContent = '…'; $('foil-price').textContent = '…'; els.priceNote.textContent = 'Recherche du prix de rachat sur Playin…';
-  $('choose-normal').setAttribute('aria-pressed','true'); $('choose-foil').setAttribute('aria-pressed','false');
+  bindAll('thumb').forEach((thumb) => {
+    thumb.replaceChildren();
+    if (/^https:\/\/(cards|images)\.scryfall\.io\//.test(src)) { const img = document.createElement('img'); img.alt = ''; img.src = src; thumb.append(img); }
+  });
+  setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
+  setPressed('normal');
 }
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(searchName(card))}`; }
@@ -246,17 +259,15 @@ function parsePlayinRows(html) {
   }).filter((row) => row.variants.length);
 }
 
-const priceText = (value) => Number.isFinite(value) ? money(value) : '—';
 function paintPrices(item) {
-  els.price.textContent=priceText(item.prices.normal); $('foil-price').textContent=priceText(item.prices.foil);
-  els.priceNote.textContent=`${item.prices.edition || 'Édition inconnue'} · ${item.language.toUpperCase()} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total. Vérifie l’édition.${Number.isFinite(item.prices[item.finish])?'':` Pas de tarif ${item.finish==='foil'?'Foil':'Normal'}.`}`;
-  $('choose-normal').setAttribute('aria-pressed',String(item.finish==='normal'));
-  $('choose-foil').setAttribute('aria-pressed',String(item.finish==='foil'));
+  setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil));
+  setBind('note', `${item.prices.edition || 'Édition inconnue'} · ${item.language.toUpperCase()} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total. Vérifie l’édition.${Number.isFinite(item.prices[item.finish])?'':` Pas de tarif ${item.finish==='foil'?'Foil':'Normal'}.`}`);
+  setPressed(item.finish);
 }
 function showBestPlayinPrice() {
   if(!currentCard || !currentPlayinRows.length) return;
   const item=currentEntry || {finish:currentFinish};
-  item.language=els.priceLanguage.value; item.prices=priceData(currentCard,currentPlayinRows,item.language); item.price=item.prices[item.finish];
+  item.language=currentLanguage(); item.prices=priceData(currentCard,currentPlayinRows,item.language); item.price=item.prices[item.finish];
   paintPrices(item); updateSession();
 }
 
@@ -294,7 +305,7 @@ async function queryPlayinPrice(card, entry = null) {
     if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
   } catch (error) {
     if(entry) {entry.priceState='Prix indisponible'; updateSession();}
-    if(currentCard===card) {els.price.textContent = '—'; $('foil-price').textContent='—'; els.priceNote.textContent = `Prix indisponible : Playin n’a pas répondu (${error.message}).`;}
+    if(currentCard===card) {setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`);}
   }
 }
 
@@ -304,10 +315,10 @@ function checkPlayin() {
 
 els.toggle.addEventListener('click', toggleScanner);
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
-els.playin.addEventListener('click', checkPlayin);
-els.priceLanguage.addEventListener('change', showBestPlayinPrice);
-els.add.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); } });
-for(const finish of ['normal','foil']) $('choose-'+finish).addEventListener('click',()=>{currentFinish=finish; if(currentEntry) currentEntry.finish=finish; showBestPlayinPrice();});
+document.querySelectorAll('.js-playin').forEach((button) => button.addEventListener('click', checkPlayin));
+document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); showBestPlayinPrice(); }));
+document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); } }));
+document.querySelectorAll('[data-finish]').forEach((button) => button.addEventListener('click',()=>{const finish=button.dataset.finish; currentFinish=finish; if(currentEntry) currentEntry.finish=finish; setPressed(finish); showBestPlayinPrice();}));
 els.clear.addEventListener('click', () => { if(confirm('Supprimer toutes les cartes de la collection ?')) {session.length = 0; lastRemoved=null; $('undo-delete').hidden=true; updateSession();} });
 for(const id of ['history-search','history-min','history-max']) $(id).addEventListener('input',()=>{historyLimit=30; renderHistory();});
 for(const id of ['history-sort','history-period']) $(id).addEventListener('change',()=>{historyLimit=30; renderHistory();});
@@ -315,11 +326,18 @@ $('reset-filters').addEventListener('click',()=>{for(const id of ['history-searc
 $('history-more').addEventListener('click',()=>{historyLimit+=30; renderHistory();});
 $('undo-delete').addEventListener('click',()=>{if(lastRemoved){if(lastRemoved.decrement) lastRemoved.item.quantity++; else session.splice(Math.min(lastRemoved.index,session.length),0,lastRemoved.item); lastRemoved=null; updateSession();} clearTimeout(undoTimer); $('undo-delete').hidden=true;});
 for(const [button,panel] of [['more-toggle','more-panel'],['filters-toggle','filters']]) $(button).addEventListener('click',()=>{const open=$(panel).hidden; $(panel).hidden=!open; $(button).setAttribute('aria-expanded',String(open));});
-for(const view of ['scanner','collection']) $('tab-'+view).addEventListener('click',()=>{
-  for(const name of ['scanner','collection']) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false'); $('tab-'+name).setAttribute('aria-selected',String(name===view));}
-  if(view==='collection' && scannerStarted) {scanner.stop(); setCamera(false); setStatus('Scanner en pause pendant la consultation de la collection.');}
+const VIEWS = ['scanner','search','collection'];
+for(const view of VIEWS) $('tab-'+view).addEventListener('click',()=>{
+  for(const name of VIEWS) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false'); $('tab-'+name).setAttribute('aria-selected',String(name===view));}
+  if(view!=='scanner' && scannerStarted) {scanner.stop(); setCamera(false); setStatus('Scanner en pause.');}
   window.scrollTo({top:0,behavior:'instant'});
 });
+// Fast entry: tap the number field again after a search to clear it and reopen the digit keypad.
+els.number.addEventListener('focus', () => { if (numberDone) { els.number.value = ''; numberDone = false; } });
+els.set.addEventListener('focus', () => els.set.select());
+try { els.set.value = (localStorage.getItem(LAST_SET_KEY) || '').toUpperCase(); } catch {}
+// Ask the browser not to evict the saved collection under storage pressure.
+navigator.storage?.persist?.().catch(() => {});
 function updateNetwork() { els.network.textContent = navigator.onLine ? 'En ligne' : 'Hors ligne'; els.network.classList.toggle('offline', !navigator.onLine); }
 window.addEventListener('online', updateNetwork); window.addEventListener('offline', updateNetwork); updateNetwork(); updateSession();
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
