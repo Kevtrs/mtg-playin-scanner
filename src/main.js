@@ -176,7 +176,7 @@ async function toggleScanner() {
 
 // One card at a time: no new scan while the previous one is still being identified
 // and priced (whether or not a price comes back), then a short pause before the next.
-const scanLock = new ScanLock(2000);
+const scanLock = new ScanLock(0);
 
 async function handleVisualMatch(match) {
   if (!scanLock.canScan()) return;
