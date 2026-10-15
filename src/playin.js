@@ -26,3 +26,10 @@ export function priceData(card, rows, language) {
   const variants = bestRow?.variants.filter((v) => v.label.startsWith(language + ' ') && /Mint\/Nmint/i.test(v.label)) || [];
   return { normal: variants.find((v) => !v.foil)?.price ?? null, foil: variants.find((v) => v.foil)?.price ?? null, edition: bestRow?.edition || '' };
 }
+
+// Keep only what priceData() reads (Mint/Nmint variants): ~5x smaller to store and re-parse.
+export function compactRows(rows) {
+  return rows
+    .map((row) => ({ nameFr: row.nameFr, nameEn: row.nameEn, edition: row.edition, variants: row.variants.filter((v) => /Mint\/Nmint/i.test(v.label)) }))
+    .filter((row) => row.variants.length);
+}

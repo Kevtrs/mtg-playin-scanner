@@ -208,3 +208,7 @@ input::placeholder { color: var(--muted); }
 .search-status { min-height: 1.4em; color: var(--ink-2); font-size: var(--text-s); text-wrap: balance; }
 .search-status.error { color: var(--danger); }
 .result { display: grid; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-l); background: var(--surface); }
+
+.check { display: flex; gap: var(--space-3); align-items: flex-start; color: var(--ink-2); font-size: var(--text-s); line-height: 1.4; }
+.check input { width: 24px; min-height: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+.diag { font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; }

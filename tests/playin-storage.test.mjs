@@ -25,7 +25,7 @@ test('plain card without frame_effects prefers the plain printing over showcase'
   assert.ok(printingScore(plain,card)>printingScore(showcase,card));
   assert.equal(priceData(card,[showcase,plain],'Fr').normal,1);
 });
-import {searchName} from '../src/playin.js';
+import {searchName, compactRows} from '../src/playin.js';
 test('double-faced cards are searched by their front face',()=>{
   assert.equal(searchName({name:'Delver of Secrets // Insectile Aberration'}),'Delver of Secrets');
   assert.equal(searchName({name:'Éclair'}),'Éclair');
@@ -47,4 +47,15 @@ test('price cache keeps the newest entries when the quota is hit',()=>{
   assert.equal(savePriceCache(c,small),true);
   const kept=Object.keys(JSON.parse(small.d['mtg-price-cache']));
   assert.ok(kept.length<=10 && kept.includes('k39'));
+});
+
+test('compacted rows give the same prices as the full rows and are smaller',()=>{
+  const card={name:'Éclair',set_name:'Murders at Karlov Manor',promo:false,full_art:false};
+  const rows=[{nameFr:'Éclair',nameEn:'Éclair',edition:'Murders at Karlov Manor',variants:[
+    {label:'Fr Mint/Nmint',price:1,foil:false},{label:'Fr Mint/Nmint foil',price:2,foil:true},
+    {label:'Fr Played',price:0.5,foil:false},{label:'En Heavily Played',price:0.1,foil:false},{label:'En Mint/Nmint',price:1.2,foil:false}]}];
+  const compact=compactRows(rows);
+  for(const lang of ['Fr','En']) assert.deepEqual(priceData(card,compact,lang),priceData(card,rows,lang));
+  assert.ok(JSON.stringify(compact).length<JSON.stringify(rows).length);
+  assert.deepEqual(compactRows([{nameFr:'a',nameEn:'a',edition:'x',variants:[{label:'Fr Played',price:1,foil:false}]}]),[]);
 });

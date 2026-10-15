@@ -1,6 +1,6 @@
 import './style.css';
 import { ScanGate, ScanLock, selectHistory } from './collection.js';
-import { priceData, searchName } from './playin.js';
+import { priceData, searchName, compactRows } from './playin.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
 
@@ -32,6 +32,19 @@ for (const item of session) {
   item.finish ||= 'normal';
 }
 const priceText = (value) => Number.isFinite(value) ? money(value) : '—';
+// Crash recovery: iOS reloads a page that runs out of memory. If scanning was active when the
+// page was reloaded, remember it and switch to a lighter camera/scan profile.
+const store = {
+  get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch {} },
+};
+let crashedLastRun = false;
+try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionStorage.removeItem('mtg-scanning'); } catch {}
+if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
+const lightMode = store.get('mtg-light-mode') === '1';
+const recordError = (message) => store.set('mtg-last-error', `${new Date().toLocaleString('fr-FR')} · ${String(message).slice(0, 160)}`);
+window.addEventListener('error', (event) => recordError(`${event.message} (${(event.filename || '').split('/').pop()}:${event.lineno})`));
+window.addEventListener('unhandledrejection', (event) => recordError(event.reason?.message || event.reason));
 const bindAll = (name) => document.querySelectorAll(`[data-bind="${name}"]`);
 const setBind = (name, text) => bindAll(name).forEach((node) => { node.textContent = text; });
 const setPressed = (finish) => document.querySelectorAll('[data-finish]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.finish === finish)));
@@ -46,6 +59,7 @@ function thumbnailFor(item) {
 }
 
 function renderHistory() {
+  if ($('collection-view').hidden) return; // no DOM/image churn while scanning
   const focused = document.activeElement;
   const focusEntry = focused?.closest('[data-entry]')?.dataset.entry;
   const focusAction = focused?.dataset.action;
@@ -99,8 +113,8 @@ function showUndo() { $('undo-delete').hidden=false; clearTimeout(undoTimer); un
 
 // Heat/battery: the recognition engine runs on the CPU. Slow it down when no card is in
 // view, and stop the camera after a while without a scan or when the app is backgrounded.
-const SCAN_INTERVAL_ACTIVE_MS = 700;
-const SCAN_INTERVAL_IDLE_MS = 1200;
+const SCAN_INTERVAL_ACTIVE_MS = lightMode ? 1000 : 700;
+const SCAN_INTERVAL_IDLE_MS = lightMode ? 1600 : 1200;
 const AUTO_PAUSE_MS = 60000;
 let scanInterval = SCAN_INTERVAL_ACTIVE_MS;
 let emptyResults = 0;
@@ -123,6 +137,7 @@ function setCamera(running) {
   $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
   els.toggle.dataset.running = String(running);
   $('viewfinder').dataset.live = String(running);
+  try { running ? sessionStorage.setItem('mtg-scanning', '1') : sessionStorage.removeItem('mtg-scanning'); } catch {}
   clearInterval(idleTimer); idleTimer = null;
   if (running) {
     lastActivity = performance.now(); emptyResults = 0;
@@ -156,7 +171,7 @@ async function loadScanner() {
     const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl);
     scanner = await createCollectorVisionScannerApplet({
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
-      scanIntervalMs: 700, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: true,
+      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightMode ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: true,
       onReady() {
         scannerReady = true;
         els.mode.textContent = 'Moteur prêt';
@@ -302,6 +317,13 @@ function showBestPlayinPrice() {
 }
 
 const playinCache = loadPriceCache();
+let priceSaveTimer = null;
+function rememberRows(key, rows) {
+  const compact = compactRows(rows);
+  playinCache.set(key, { t: Date.now(), rows: compact });
+  clearTimeout(priceSaveTimer); priceSaveTimer = setTimeout(() => savePriceCache(playinCache), 3000); // off the scan's critical moment
+  return compact;
+}
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchPlayinRows(name) {
@@ -314,7 +336,7 @@ async function fetchPlayinRows(name) {
       const response = await fetch(`${PRICE_RELAY_URL}/price?name=${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(6000) });
       if (response.ok) {
         const rows = parsePlayinRows(await response.text());
-        if (rows.length) { playinCache.set(key, { t: Date.now(), rows }); savePriceCache(playinCache); return rows; }
+        if (rows.length) return rememberRows(key, rows);
       }
     } catch { /* relay down or blocked: fall back to the public reader below */ }
   }
@@ -328,8 +350,7 @@ async function fetchPlayinRows(name) {
       if (!response.ok) throw new Error(`relais HTTP ${response.status}`);
       const rows = parsePlayinRows(await response.text());
       if (!rows.length) throw new Error('aucun tarif trouvé');
-      playinCache.set(key, { t: Date.now(), rows }); savePriceCache(playinCache);
-      return rows;
+      return rememberRows(key, rows);
     } catch (error) {
       lastError = error;
       if (error.message === 'aucun tarif trouvé') break;
@@ -372,6 +393,7 @@ const VIEWS = ['scanner','search','collection'];
 for(const view of VIEWS) $('tab-'+view).addEventListener('click',()=>{
   for(const name of VIEWS) {$(name+'-view').hidden=name!==view; $('tab-'+name).setAttribute('aria-current',name===view?'page':'false'); $('tab-'+name).setAttribute('aria-selected',String(name===view));}
   if(view!=='scanner' && scannerStarted) {scanner.stop(); setCamera(false); setStatus('Scanner en pause.');}
+  if(view==='collection') renderHistory();
   window.scrollTo({top:0,behavior:'instant'});
 });
 // Fast entry: tap the number field again after a search to clear it and reopen the digit keypad.
@@ -386,3 +408,9 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => navigato
 const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent); const standalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 if (isiOS && !standalone && !sessionStorage.getItem('install-dismissed')) $('install-help').hidden = false;
 $('close-install').addEventListener('click', () => { $('install-help').hidden = true; sessionStorage.setItem('install-dismissed', '1'); });
+
+// Diagnostic + battery/memory profile switch (Collection tab footer).
+$('light-mode').checked = lightMode;
+$('light-mode').addEventListener('change', () => { store.set('mtg-light-mode', $('light-mode').checked ? '1' : '0'); location.reload(); });
+$('diagnostic').textContent = [`Plantages détectés : ${store.get('mtg-crashes') || 0}`, store.get('mtg-last-error') ? `Dernière erreur : ${store.get('mtg-last-error')}` : ''].filter(Boolean).join(' · ');
+if (crashedLastRun) setStatus('L’app a été rechargée par le système (manque de mémoire). Mode économie activé.', true);
