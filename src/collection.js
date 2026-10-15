@@ -22,6 +22,14 @@ export class ScanGate {
   }
 }
 
+// One card at a time: refuses new scans while one is in progress and for a pause after it ends.
+export class ScanLock {
+  constructor(pauseMs = 2000) { this.pauseMs = pauseMs; this.busy = false; this.pausedUntil = 0; }
+  canScan(now = performance.now()) { return !this.busy && now >= this.pausedUntil; }
+  start() { this.busy = true; }
+  finish(now = performance.now()) { this.busy = false; this.pausedUntil = now + this.pauseMs; }
+}
+
 export function selectHistory(items, filters = {}, now = new Date()) {
   const query = (filters.search || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const min = filters.min === '' || filters.min == null ? null : Number(filters.min);

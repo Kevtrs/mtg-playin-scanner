@@ -1,5 +1,5 @@
 import './style.css';
-import { ScanGate, selectHistory } from './collection.js';
+import { ScanGate, ScanLock, selectHistory } from './collection.js';
 import { priceData, searchName } from './playin.js';
 import { loadSession, saveSession } from './storage.js';
 
@@ -169,21 +169,30 @@ async function toggleScanner() {
   }
 }
 
+// One card at a time: no new scan while the previous one is still being identified
+// and priced (whether or not a price comes back), then a short pause before the next.
+const scanLock = new ScanLock(2000);
+
 async function handleVisualMatch(match) {
+  if (!scanLock.canScan()) return;
   if(!scanGate.accept(match)) return;
+  scanLock.start();
   const sequence = ++lookupSequence;
   setStatus(`Carte détectée (${Math.round(match.score * 100)} %). Identification…`);
   try {
-    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(match.cardId)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' } });
+    const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(match.cardId)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
     const card = await response.json();
     const entry = addCardToSession(card);
     if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card);}
-    beep(); queryPlayinPrice(card, entry);
+    beep();
     if (navigator.vibrate) navigator.vibrate(80);
     const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
-    if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ Retire-la pour scanner un autre exemplaire.`);
+    if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ Recherche du prix…`);
+    await queryPlayinPrice(card, entry);
+    if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ ${Number.isFinite(entry.price) ? money(entry.price) : 'Prix indisponible'}. Retire-la pour scanner la suivante.`);
   } catch (error) { setStatus(`Identification impossible : ${error.message}. Retire la carte puis représente-la.`, true); }
+  finally { scanLock.finish(); }
 }
 
 function addCardToSession(card) {
@@ -261,7 +270,7 @@ async function fetchPlayinRows(name) {
   let lastError;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const response = await fetch(readerUrl, { headers: { 'X-Return-Format': 'html' } });
+      const response = await fetch(readerUrl, { headers: { 'X-Return-Format': 'html' }, signal: AbortSignal.timeout(10000) });
       if (response.status === 429 || response.status >= 500) throw new Error(`relais HTTP ${response.status}`);
       if (!response.ok) throw new Error(`relais HTTP ${response.status}`);
       const rows = parsePlayinRows(await response.text());
