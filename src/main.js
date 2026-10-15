@@ -96,12 +96,40 @@ function renderHistory() {
 let undoTimer = null;
 function showUndo() { $('undo-delete').hidden=false; clearTimeout(undoTimer); undoTimer=setTimeout(()=>{ $('undo-delete').hidden=true; lastRemoved=null; }, 6000); }
 
+// Heat/battery: the recognition engine runs on the CPU. Slow it down when no card is in
+// view, and stop the camera after a while without a scan or when the app is backgrounded.
+const SCAN_INTERVAL_ACTIVE_MS = 700;
+const SCAN_INTERVAL_IDLE_MS = 1200;
+const AUTO_PAUSE_MS = 60000;
+let scanInterval = SCAN_INTERVAL_ACTIVE_MS;
+let emptyResults = 0;
+let lastActivity = performance.now();
+let idleTimer = null;
+
+function tuneScanRate(result, instance) {
+  emptyResults = result.cardPresent === false ? emptyResults + 1 : 0;
+  const wanted = emptyResults >= 3 ? SCAN_INTERVAL_IDLE_MS : SCAN_INTERVAL_ACTIVE_MS;
+  if (wanted !== scanInterval) { scanInterval = wanted; instance.updateConfig({ scanIntervalMs: wanted }); }
+}
+
+function pauseScanner(message) {
+  if (!scannerStarted || !scanner) return;
+  scanner.stop(); setCamera(false); setStatus(message);
+}
+
 function setCamera(running) {
   scannerStarted = running;
   $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
   els.toggle.dataset.running = String(running);
   $('viewfinder').dataset.live = String(running);
+  clearInterval(idleTimer); idleTimer = null;
+  if (running) {
+    lastActivity = performance.now(); emptyResults = 0;
+    if (scanInterval !== SCAN_INTERVAL_ACTIVE_MS && scanner) { scanInterval = SCAN_INTERVAL_ACTIVE_MS; scanner.updateConfig({ scanIntervalMs: scanInterval }); }
+    idleTimer = setInterval(() => { if (performance.now() - lastActivity > AUTO_PAUSE_MS) pauseScanner('Scanner en pause pour éviter que le téléphone chauffe. Touche Démarrer pour reprendre.'); }, 5000);
+  }
 }
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseScanner('Scanner en pause. Touche Démarrer pour reprendre.'); });
 
 function setStatus(message, error = false) {
   els.status.textContent = message;
@@ -138,6 +166,7 @@ async function loadScanner() {
         setStatus(`${label}… Le premier chargement télécharge environ 40 Mo.`);
       },
       onResult(result, instance) {
+        tuneScanRate(result, instance);
         if(scanGate.observe(result)) {
           instance.bucket?.reset();
           setStatus('Cadre libre. Présente la carte suivante.');
@@ -180,7 +209,7 @@ const scanLock = new ScanLock(2000);
 async function handleVisualMatch(match) {
   if (!scanLock.canScan()) return;
   if(!scanGate.accept(match)) return;
-  scanLock.start();
+  scanLock.start(); lastActivity = performance.now();
   const sequence = ++lookupSequence;
   setStatus(`Carte détectée (${Math.round(match.score * 100)} %). Identification…`);
   try {
