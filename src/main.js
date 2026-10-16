@@ -43,7 +43,7 @@ try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionSt
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
 // Diagnostic switches (Collection > Diagnostic): each turns one suspect off so a crash can be bisected.
-const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres'];
+const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2'];
 const dx = Object.fromEntries(DX.map((name) => [name, store.get(`dx-${name}`) === '1']));
 const dxActive = DX.filter((name) => dx[name]);
 const lightProfile = lightMode && !dx.fullres;
@@ -189,7 +189,7 @@ async function loadScanner() {
     const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl);
     scanner = await createCollectorVisionScannerApplet({
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
-      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay,
+      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay, catalogMode: dx.catv2 ? 'v2' : 'v1',
       onReady() {
         scannerReady = true; trace('engine ready');
         els.mode.textContent = 'Moteur prêt';
@@ -457,7 +457,7 @@ $('copy-diagnostic').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(text); $('copy-diagnostic').textContent = 'Copié ✓'; }
   catch { $('trace').textContent = text; $('copy-diagnostic').textContent = 'Sélectionne le texte ci-dessus'; }
 });
-if (crashedLastRun) setStatus('L’app a été rechargée par le système (manque de mémoire). Mode économie activé.', true);
+if (crashedLastRun) setStatus('L’app a été rechargée par le système pendant le scan (cause non confirmée). Mode économie activé.', true);
 
 // Diagnostic switches UI. Any change reloads the app so the new profile applies from a clean start.
 for (const name of DX) {
