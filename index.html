@@ -211,6 +211,15 @@
                 <summary>Diagnostic (à copier si l’app se recharge toute seule)</summary>
                 <pre id="trace" class="diag"></pre>
                 <button id="copy-diagnostic" class="btn btn-quiet" type="button">Copier le diagnostic</button>
+                <fieldset class="dx">
+                  <legend>Tests (change un réglage puis relance l’app)</legend>
+                  <label class="check"><input type="checkbox" id="dx-nosw" /><span>Sans service worker</span></label>
+                  <label class="check"><input type="checkbox" id="dx-noaudio" /><span>Sans son</span></label>
+                  <label class="check"><input type="checkbox" id="dx-nooverlay" /><span>Sans contour vert sur la caméra</span></label>
+                  <label class="check"><input type="checkbox" id="dx-minimalui" /><span>Interface minimale pendant le scan</span></label>
+                  <label class="check"><input type="checkbox" id="dx-fullres" /><span>Caméra pleine résolution (comme la démo)</span></label>
+                  <button id="dx-demo" class="btn btn-quiet" type="button"></button>
+                </fieldset>
               </details>
               <p>Reconnaissance visuelle par <a href="https://github.com/HanClinto/CollectorVision" target="_blank" rel="noopener">CollectorVision</a> (AGPL-3.0), exécutée sur ton iPhone. <a href="https://github.com/Kevtrs/mtg-playin-scanner" target="_blank" rel="noopener">Code source</a>.</p>
             </footer>

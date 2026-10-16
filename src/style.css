@@ -216,3 +216,9 @@ input::placeholder { color: var(--muted); }
 .diag-box summary { cursor: pointer; color: var(--ink-2); font-size: var(--text-s); min-height: 44px; display: flex; align-items: center; }
 .diag-box .diag { margin: var(--space-2) 0 var(--space-3); padding: var(--space-3); max-height: 260px; overflow: auto; border-radius: var(--radius-s); background: var(--surface); white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
 .diag-box .btn { width: 100%; }
+
+.dx { display: grid; gap: var(--space-3); margin: var(--space-3) 0 0; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-m); }
+.dx legend { padding: 0 var(--space-2); color: var(--ink-2); font-size: var(--text-xs); }
+/* Diagnostic switches */
+.dx-nooverlay .cv-applet__canvas { display: none !important; }
+.dx-minimalui .topbar, .dx-minimalui .guide, .dx-minimalui .scan-flash { display: none !important; }

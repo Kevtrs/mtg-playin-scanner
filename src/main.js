@@ -42,6 +42,12 @@ let crashedLastRun = false;
 try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionStorage.removeItem('mtg-scanning'); } catch {}
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
+// Diagnostic switches (Collection > Diagnostic): each turns one suspect off so a crash can be bisected.
+const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres'];
+const dx = Object.fromEntries(DX.map((name) => [name, store.get(`dx-${name}`) === '1']));
+const dxActive = DX.filter((name) => dx[name]);
+const lightProfile = lightMode && !dx.fullres;
+for (const name of dxActive) document.documentElement.classList.add(`dx-${name}`);
 const recordError = (message) => store.set('mtg-last-error', `${new Date().toLocaleString('fr-FR')} · ${String(message).slice(0, 160)}`);
 // "Black box": the last 40 steps are kept in localStorage so that, after a reload, we can see what ran just before it.
 const TRACE_KEY = 'mtg-trace';
@@ -52,7 +58,7 @@ function trace(label) {
     localStorage.setItem(TRACE_KEY, JSON.stringify(lines.slice(-40)));
   } catch {}
 }
-trace(`load ${performance.getEntriesByType('navigation')[0]?.type || '?'} crashed=${crashedLastRun} light=${lightMode} sw=${navigator.serviceWorker?.controller ? 'yes' : 'no'}`);
+trace(`load ${performance.getEntriesByType('navigation')[0]?.type || '?'} crashed=${crashedLastRun} light=${lightMode} dx=[${dxActive.join(',') || '-'}] sw=${navigator.serviceWorker?.controller ? 'yes' : 'no'}`);
 for (const type of ['pagehide', 'pageshow', 'freeze', 'resume']) window.addEventListener(type, () => trace(type));
 navigator.serviceWorker?.addEventListener('controllerchange', () => trace('sw-controllerchange'));
 window.addEventListener('error', (event) => recordError(`${event.message} (${(event.filename || '').split('/').pop()}:${event.lineno})`));
@@ -125,8 +131,8 @@ function showUndo() { $('undo-delete').hidden=false; clearTimeout(undoTimer); un
 
 // Heat/battery: the recognition engine runs on the CPU. Slow it down when no card is in
 // view, and stop the camera after a while without a scan or when the app is backgrounded.
-const SCAN_INTERVAL_ACTIVE_MS = lightMode ? 1000 : 700;
-const SCAN_INTERVAL_IDLE_MS = lightMode ? 1600 : 1200;
+const SCAN_INTERVAL_ACTIVE_MS = lightProfile ? 1000 : 700;
+const SCAN_INTERVAL_IDLE_MS = lightProfile ? 1600 : 1200;
 const AUTO_PAUSE_MS = 60000;
 let scanInterval = SCAN_INTERVAL_ACTIVE_MS;
 let emptyResults = 0;
@@ -183,7 +189,7 @@ async function loadScanner() {
     const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl);
     scanner = await createCollectorVisionScannerApplet({
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
-      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightMode ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: true,
+      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay,
       onReady() {
         scannerReady = true; trace('engine ready');
         els.mode.textContent = 'Moteur prêt';
@@ -212,8 +218,10 @@ async function loadScanner() {
 
 async function toggleScanner() {
   try {
-    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audioContext.state === 'suspended') await audioContext.resume();
+    if (!dx.noaudio) {
+      audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') await audioContext.resume();
+    }
     const instance = await loadScanner();
     if (scannerStarted) {
       instance.stop(); setCamera(false); setStatus('Scanner arrêté.');
@@ -417,7 +425,17 @@ try { els.set.value = (localStorage.getItem(LAST_SET_KEY) || '').toUpperCase(); 
 navigator.storage?.persist?.().catch(() => {});
 function updateNetwork() { els.network.textContent = navigator.onLine ? 'En ligne' : 'Hors ligne'; els.network.classList.toggle('offline', !navigator.onLine); }
 window.addEventListener('online', updateNetwork); window.addEventListener('offline', updateNetwork); updateNetwork(); updateSession();
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+if ('serviceWorker' in navigator) {
+  if (dx.nosw) {
+    // Like the official CollectorVision demo on iOS: no service worker at all.
+    navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+      const wasControlled = Boolean(navigator.serviceWorker.controller);
+      for (const registration of registrations) await registration.unregister();
+      for (const key of await caches.keys()) if (key.startsWith('mtg-playin')) await caches.delete(key);
+      if (wasControlled && !sessionStorage.getItem('mtg-nosw-reloaded')) { sessionStorage.setItem('mtg-nosw-reloaded', '1'); location.reload(); }
+    }).catch(() => {});
+  } else window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+}
 const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent); const standalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
 if (isiOS && !standalone && !sessionStorage.getItem('install-dismissed')) $('install-help').hidden = false;
 $('close-install').addEventListener('click', () => { $('install-help').hidden = true; sessionStorage.setItem('install-dismissed', '1'); });
@@ -430,6 +448,7 @@ const diagnosticText = () => [
   `Plantages détectés : ${store.get('mtg-crashes') || 0}`,
   `Dernière erreur : ${store.get('mtg-last-error') || 'aucune'}`,
   `Collection : ${session.length} cartes`,
+  `Interrupteurs actifs : ${dxActive.join(', ') || 'aucun'}`,
   '--- dernières étapes ---', ...JSON.parse(store.get(TRACE_KEY) || '[]'),
 ].join('\n');
 $('trace').textContent = diagnosticText();
@@ -439,3 +458,15 @@ $('copy-diagnostic').addEventListener('click', async () => {
   catch { $('trace').textContent = text; $('copy-diagnostic').textContent = 'Sélectionne le texte ci-dessus'; }
 });
 if (crashedLastRun) setStatus('L’app a été rechargée par le système (manque de mémoire). Mode économie activé.', true);
+
+// Diagnostic switches UI. Any change reloads the app so the new profile applies from a clean start.
+for (const name of DX) {
+  const box = $(`dx-${name}`); box.checked = dx[name];
+  box.addEventListener('change', () => { store.set(`dx-${name}`, box.checked ? '1' : '0'); sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload(); });
+}
+$('dx-demo').addEventListener('click', () => {
+  const allOn = DX.every((name) => dx[name]);
+  for (const name of DX) store.set(`dx-${name}`, allOn ? '0' : '1');
+  sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload();
+});
+$('dx-demo').textContent = DX.every((name) => dx[name]) ? 'Remettre le profil normal' : 'Profil « démo » (tout désactiver)';
