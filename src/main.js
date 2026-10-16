@@ -43,6 +43,18 @@ try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionSt
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
 const recordError = (message) => store.set('mtg-last-error', `${new Date().toLocaleString('fr-FR')} · ${String(message).slice(0, 160)}`);
+// "Black box": the last 40 steps are kept in localStorage so that, after a reload, we can see what ran just before it.
+const TRACE_KEY = 'mtg-trace';
+function trace(label) {
+  try {
+    const lines = JSON.parse(localStorage.getItem(TRACE_KEY) || '[]');
+    lines.push(`${new Date().toISOString().slice(5, 23).replace('T', ' ')} ${label}`);
+    localStorage.setItem(TRACE_KEY, JSON.stringify(lines.slice(-40)));
+  } catch {}
+}
+trace(`load ${performance.getEntriesByType('navigation')[0]?.type || '?'} crashed=${crashedLastRun} light=${lightMode} sw=${navigator.serviceWorker?.controller ? 'yes' : 'no'}`);
+for (const type of ['pagehide', 'pageshow', 'freeze', 'resume']) window.addEventListener(type, () => trace(type));
+navigator.serviceWorker?.addEventListener('controllerchange', () => trace('sw-controllerchange'));
 window.addEventListener('error', (event) => recordError(`${event.message} (${(event.filename || '').split('/').pop()}:${event.lineno})`));
 window.addEventListener('unhandledrejection', (event) => recordError(event.reason?.message || event.reason));
 const bindAll = (name) => document.querySelectorAll(`[data-bind="${name}"]`);
@@ -133,7 +145,7 @@ function pauseScanner(message) {
 }
 
 function setCamera(running) {
-  scannerStarted = running;
+  scannerStarted = running; trace(running ? 'camera start' : 'camera stop');
   $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
   els.toggle.dataset.running = String(running);
   $('viewfinder').dataset.live = String(running);
@@ -145,7 +157,7 @@ function setCamera(running) {
     idleTimer = setInterval(() => { if (performance.now() - lastActivity > AUTO_PAUSE_MS) pauseScanner('Scanner en pause pour éviter que le téléphone chauffe. Touche Démarrer pour reprendre.'); }, 5000);
   }
 }
-document.addEventListener('visibilitychange', () => { if (document.hidden) pauseScanner('Scanner en pause. Touche Démarrer pour reprendre.'); });
+document.addEventListener('visibilitychange', () => { trace(document.hidden ? 'hidden' : 'visible'); if (document.hidden) pauseScanner('Scanner en pause. Touche Démarrer pour reprendre.'); });
 
 function setStatus(message, error = false) {
   els.status.textContent = message;
@@ -173,7 +185,7 @@ async function loadScanner() {
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
       scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightMode ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: true,
       onReady() {
-        scannerReady = true;
+        scannerReady = true; trace('engine ready');
         els.mode.textContent = 'Moteur prêt';
         setStatus('Moteur prêt. Appuie sur Démarrer puis présente une carte entière.');
       },
@@ -189,7 +201,7 @@ async function loadScanner() {
         }
       },
       onCardDetected(result) { handleVisualMatch(result); },
-      onError(error) { setStatus(`Scanner visuel : ${error.message}`, true); }
+      onError(error) { trace(`engine error ${error.message}`); setStatus(`Scanner visuel : ${error.message}`, true); }
     });
     return scanner;
   } catch (error) {
@@ -225,23 +237,24 @@ const scanLock = new ScanLock(0);
 async function handleVisualMatch(match) {
   if (!scanLock.canScan()) return;
   if(!scanGate.accept(match)) return;
-  scanLock.start(); lastActivity = performance.now();
+  scanLock.start(); lastActivity = performance.now(); trace(`scan detect ${match.cardId?.slice(0, 8)} score=${match.score?.toFixed?.(2)}`);
   const sequence = ++lookupSequence;
   setStatus(`Carte détectée (${Math.round(match.score * 100)} %). Identification…`);
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(match.cardId)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
-    const card = await response.json();
-    const entry = addCardToSession(card);
+    const card = await response.json(); trace('scan scryfall-ok');
+    const entry = addCardToSession(card); trace('scan added');
     if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card);}
-    beep();
+    trace('scan rendered'); beep(); trace('scan beep');
     if (navigator.vibrate) navigator.vibrate(80);
     const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ Recherche du prix…`);
-    await queryPlayinPrice(card, entry);
+    trace('scan price-start');
+    await queryPlayinPrice(card, entry); trace(`scan price-done ${Number.isFinite(entry.price) ? 'ok' : 'none'}`);
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ ${Number.isFinite(entry.price) ? money(entry.price) : 'Prix indisponible'}. Retire-la pour scanner la suivante.`);
-  } catch (error) { setStatus(`Identification impossible : ${error.message}. Retire la carte puis représente-la.`, true); }
-  finally { scanLock.finish(); }
+  } catch (error) { trace(`scan error ${error.message}`); setStatus(`Identification impossible : ${error.message}. Retire la carte puis représente-la.`, true); }
+  finally { scanLock.finish(); trace('scan end'); }
 }
 
 function addCardToSession(card) {
@@ -412,5 +425,17 @@ $('close-install').addEventListener('click', () => { $('install-help').hidden = 
 // Diagnostic + battery/memory profile switch (Collection tab footer).
 $('light-mode').checked = lightMode;
 $('light-mode').addEventListener('change', () => { store.set('mtg-light-mode', $('light-mode').checked ? '1' : '0'); location.reload(); });
-$('diagnostic').textContent = [`Plantages détectés : ${store.get('mtg-crashes') || 0}`, store.get('mtg-last-error') ? `Dernière erreur : ${store.get('mtg-last-error')}` : ''].filter(Boolean).join(' · ');
+const diagnosticText = () => [
+  `Version: ${document.querySelector('script[type=module]')?.src.split('/').pop() || 'dev'} · iOS: ${navigator.userAgent.match(/OS ([\d_]+)/)?.[1]?.replace(/_/g, '.') || '?'} · mode économie: ${lightMode ? 'oui' : 'non'}`,
+  `Plantages détectés : ${store.get('mtg-crashes') || 0}`,
+  `Dernière erreur : ${store.get('mtg-last-error') || 'aucune'}`,
+  `Collection : ${session.length} cartes`,
+  '--- dernières étapes ---', ...JSON.parse(store.get(TRACE_KEY) || '[]'),
+].join('\n');
+$('trace').textContent = diagnosticText();
+$('copy-diagnostic').addEventListener('click', async () => {
+  const text = diagnosticText();
+  try { await navigator.clipboard.writeText(text); $('copy-diagnostic').textContent = 'Copié ✓'; }
+  catch { $('trace').textContent = text; $('copy-diagnostic').textContent = 'Sélectionne le texte ci-dessus'; }
+});
 if (crashedLastRun) setStatus('L’app a été rechargée par le système (manque de mémoire). Mode économie activé.', true);

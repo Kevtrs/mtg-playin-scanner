@@ -212,3 +212,7 @@ input::placeholder { color: var(--muted); }
 .check { display: flex; gap: var(--space-3); align-items: flex-start; color: var(--ink-2); font-size: var(--text-s); line-height: 1.4; }
 .check input { width: 24px; min-height: 24px; height: 24px; flex: none; accent-color: var(--accent); }
 .diag { font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; }
+
+.diag-box summary { cursor: pointer; color: var(--ink-2); font-size: var(--text-s); min-height: 44px; display: flex; align-items: center; }
+.diag-box .diag { margin: var(--space-2) 0 var(--space-3); padding: var(--space-3); max-height: 260px; overflow: auto; border-radius: var(--radius-s); background: var(--surface); white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+.diag-box .btn { width: 100%; }
