@@ -39,6 +39,18 @@ jobs:
           mkdir -p dist/cv
           cp -r /tmp/collectorvision/examples/web_scanner/lib dist/cv/
           cp /tmp/collectorvision/examples/web_scanner/scanner.worker.mjs dist/cv/
+          # Le composant n'envoie pas `catalogMode` au moteur (donc catalogue v1 figé). On l'ajoute ;
+          # l'étape échoue si le fichier amont change, pour ne jamais déployer un correctif silencieusement absent.
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path('dist/cv/lib/collectorvision-scanner-applet.mjs')
+          s = p.read_text()
+          anchor = '        enableWebGpu: this.config.enableWebGpu === true,'
+          assert anchor in s, 'cible du correctif introuvable dans le composant CollectorVision'
+          line = '        catalogMode: this.config.catalogMode === "v2" ? "v2" : "v1",'
+          p.write_text(s.replace(anchor, anchor + chr(10) + line, 1))
+          PY
+          grep -q 'catalogMode: this.config.catalogMode' dist/cv/lib/collectorvision-scanner-applet.mjs
           cp /tmp/collectorvision/LICENSE dist/cv/COLLECTORVISION-LICENSE
           mkdir -p /tmp/cv-assets
           gh release download web-scanner-assets \
