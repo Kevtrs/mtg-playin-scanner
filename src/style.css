@@ -222,3 +222,11 @@ input::placeholder { color: var(--muted); }
 /* Diagnostic switches */
 .dx-nooverlay .cv-applet__canvas { display: none !important; }
 .dx-minimalui .topbar, .dx-minimalui .guide, .dx-minimalui .scan-flash { display: none !important; }
+
+/* Camera preview: like the official CollectorVision demo, the live <video> stays hidden and the
+   picture shown is a <canvas> painted from it (15 fps). A visible full-screen live <video> loads
+   WebKit's GPU process on iOS. */
+.preview { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #000; }
+.viewfinder[data-live="false"] .preview { display: none; }
+html:not(.dx-nativevideo) #cv-scanner .cv-applet__video { display: none !important; }
+html.dx-nativevideo .preview { display: none !important; }
