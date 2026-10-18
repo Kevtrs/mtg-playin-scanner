@@ -1,5 +1,5 @@
 import './style.css';
-import { ScanGate, ScanLock, selectHistory, filterEditions } from './collection.js';
+import { ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration } from './collection.js';
 import { priceData, searchName, compactRows } from './playin.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
@@ -348,7 +348,7 @@ const printingsCache = new Map();
 let currentPrintings = [];
 let editionFilter = '';
 let playinSettled = false; // true once the Playin request for the current card is over (success or not)
-const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, image_uris: { small: imageOf(c) }, prints_search_uri: c.prints_search_uri });
+const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, illustration_id: c.illustration_id || c.card_faces?.[0]?.illustration_id, image_uris: { small: imageOf(c) }, prints_search_uri: c.prints_search_uri });
 
 async function loadPrintings(card) {
   const key = card.oracle_id || card.id;
@@ -368,9 +368,11 @@ async function showEditions(card) {
   try {
     let list = await loadPrintings(card);
     if (!currentCard || searchName(currentCard) !== searchName(card)) return; // the user moved on
-    // The scanned printing comes first, then the others from newest to oldest (as Scryfall returns them).
+    // Only offer editions that share the scanned card's illustration: the engine already tells apart
+    // different artworks, so those are the only ones where the edition can really be doubtful.
     const scanned = list.find((p) => p.id === card.id) || slimPrinting(card);
-    currentPrintings = [scanned, ...list.filter((p) => p.id !== card.id)];
+    const siblings = sameIllustration(list, scanned).filter((p) => p.id !== scanned.id);
+    currentPrintings = siblings.length ? [scanned, ...siblings] : [];
     renderEditions(true);
   } catch (error) { trace(`editions error ${error.message}`); }
 }

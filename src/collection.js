@@ -69,3 +69,12 @@ export function filterEditions(printings, query, limit = 40) {
   });
   return { shown: matches.slice(0, limit), hidden: Math.max(0, matches.length - limit) };
 }
+
+// The recognition engine tells apart printings with different artwork. The only real doubt is between
+// printings of the SAME illustration (same art, different edition): those are the only ones to offer.
+export const illustrationOf = (card) => card?.illustration_id || card?.card_faces?.[0]?.illustration_id || null;
+export function sameIllustration(printings, card) {
+  const art = illustrationOf(card);
+  if (!art) return [];
+  return printings.filter((p) => illustrationOf(p) === art);
+}
