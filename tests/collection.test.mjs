@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ScanGate, ScanLock, selectHistory, filterEditions} from '../src/collection.js';
+import {ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration} from '../src/collection.js';
 
 test('held card never counts twice, including printing-ID jitter and uncertain frames',()=>{
  const gate=new ScanGate();
@@ -50,4 +50,11 @@ test('editions filter matches set name, code and number, folds accents and caps 
  assert.equal(filterEditions(list,'zzz').shown.length,0);
  const many=Array.from({length:100},(_,i)=>({set:'s'+i,set_name:'Set '+i,collector_number:String(i)}));
  const capped=filterEditions(many,'',40); assert.equal(capped.shown.length,40); assert.equal(capped.hidden,60);
+});
+
+test('only printings with the same illustration are offered as edition doubts',()=>{
+ const list=[{id:'a',set:'fdc',illustration_id:'art1'},{id:'b',set:'sld',illustration_id:'art2'},{id:'c',set:'30a',illustration_id:'art1'},{id:'d',card_faces:[{illustration_id:'art1'}],set:'lea'}];
+ assert.deepEqual(sameIllustration(list,list[0]).map(p=>p.id),['a','c','d']);
+ assert.deepEqual(sameIllustration(list,list[1]).map(p=>p.id),['b']);
+ assert.deepEqual(sameIllustration(list,{id:'x'}),[]);
 });
