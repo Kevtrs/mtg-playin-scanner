@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {ScanGate, ScanLock, selectHistory} from '../src/collection.js';
+import {ScanGate, ScanLock, selectHistory, filterEditions} from '../src/collection.js';
 
 test('held card never counts twice, including printing-ID jitter and uncertain frames',()=>{
  const gate=new ScanGate();
@@ -38,4 +38,16 @@ test('scan lock blocks while busy and for 2s after finishing',()=>{
  lock.finish(10000);
  assert.equal(lock.canScan(11999),false);
  assert.equal(lock.canScan(12000),true);
+});
+
+test('editions filter matches set name, code and number, folds accents and caps the list',()=>{
+ const list=[{set:'4ed',set_name:'Fourth Edition',collector_number:'145'},{set:'rqs',set_name:'Rivals Quick Start Set',collector_number:'19'},{set:'5ed',set_name:'Fifth Edition',collector_number:'175'},{set:'ren',set_name:'Renaissance',collector_number:'58'}];
+ assert.equal(filterEditions(list,'').shown.length,4);
+ assert.deepEqual(filterEditions(list,'fourth').shown.map(p=>p.set),['4ed']);
+ assert.deepEqual(filterEditions(list,'rqs').shown.map(p=>p.set),['rqs']);
+ assert.deepEqual(filterEditions(list,'edition 175').shown.map(p=>p.set),['5ed']);
+ assert.deepEqual(filterEditions(list,'RENAISSANCE').shown.map(p=>p.set),['ren']);
+ assert.equal(filterEditions(list,'zzz').shown.length,0);
+ const many=Array.from({length:100},(_,i)=>({set:'s'+i,set_name:'Set '+i,collector_number:String(i)}));
+ const capped=filterEditions(many,'',40); assert.equal(capped.shown.length,40); assert.equal(capped.hidden,60);
 });

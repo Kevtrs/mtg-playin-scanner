@@ -1,5 +1,5 @@
 import './style.css';
-import { ScanGate, ScanLock, selectHistory } from './collection.js';
+import { ScanGate, ScanLock, selectHistory, filterEditions } from './collection.js';
 import { priceData, searchName, compactRows } from './playin.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
@@ -280,7 +280,7 @@ async function handleVisualMatch(match) {
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
     const card = await response.json(); trace('scan scryfall-ok');
     const entry = addCardToSession(card); trace('scan added');
-    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card);}
+    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card); showEditions(card);}
     trace('scan rendered'); beep(); trace('scan beep');
     if (navigator.vibrate) navigator.vibrate(80);
     const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
@@ -293,7 +293,7 @@ async function handleVisualMatch(match) {
 }
 
 function addCardToSession(card) {
-  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || '', set: card.set, number: card.collector_number, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString() };
+  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:imageOf(card), set: card.set, number: card.collector_number, setName: card.set_name, promo: card.promo, fullArt: card.full_art, frameEffects: card.frame_effects, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString() };
   session.push(item);
   updateSession();
   return item;
@@ -319,22 +319,106 @@ async function lookupCard(set, number) {
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(response.status === 404 ? `aucune carte ${set.toUpperCase()} n° ${number}` : `Scryfall ${response.status}`);
-    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; renderCard(currentCard); queryPlayinPrice(currentCard);
+    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; renderCard(currentCard); queryPlayinPrice(currentCard); showEditions(currentCard);
     $('search-result').hidden = false; setSearchStatus('Carte trouvée.');
   } catch (error) { setSearchStatus(`Identification impossible : ${error.message}.`, true); }
 }
 
-function renderCard(card) {
+const imageOf = (card) => card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || '';
+const SCRYFALL_IMAGE = /^https:\/\/(cards|images)\.scryfall\.io\//;
+
+function renderCardInfo(card) {
   setBind('name', card.printed_name || card.name);
   setBind('meta', `${card.set_name} · ${card.set.toUpperCase()} #${card.collector_number}`);
-  const face = card.card_faces?.[0] || card; const src = face.image_uris?.small || card.image_uris?.small || '';
+  const src = imageOf(card);
   bindAll('thumb').forEach((thumb) => {
     thumb.replaceChildren();
-    if (/^https:\/\/(cards|images)\.scryfall\.io\//.test(src)) { const img = document.createElement('img'); img.alt = ''; img.src = src; thumb.append(img); }
+    if (SCRYFALL_IMAGE.test(src)) { const img = document.createElement('img'); img.alt = ''; img.src = src; thumb.append(img); }
   });
+}
+
+function renderCard(card) {
+  renderCardInfo(card);
   setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
   setPressed('normal');
 }
+
+// ── Editions strip: every printing of the card, with its own Playin price ──
+const printingsCache = new Map();
+let currentPrintings = [];
+let editionFilter = '';
+let playinSettled = false; // true once the Playin request for the current card is over (success or not)
+const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, image_uris: { small: imageOf(c) }, prints_search_uri: c.prints_search_uri });
+
+async function loadPrintings(card) {
+  const key = card.oracle_id || card.id;
+  if (printingsCache.has(key)) return printingsCache.get(key);
+  if (!card.prints_search_uri) return [slimPrinting(card)];
+  const response = await fetch(card.prints_search_uri, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new Error(`Scryfall ${response.status}`);
+  const list = (await response.json()).data.filter((c) => imageOf(c)).map(slimPrinting);
+  printingsCache.set(key, list);
+  return list;
+}
+
+async function showEditions(card) {
+  currentPrintings = []; editionFilter = '';
+  document.querySelectorAll('.js-ed-filter').forEach((input) => { input.value = ''; });
+  renderEditions();
+  try {
+    let list = await loadPrintings(card);
+    if (!currentCard || searchName(currentCard) !== searchName(card)) return; // the user moved on
+    // The scanned printing comes first, then the others from newest to oldest (as Scryfall returns them).
+    const scanned = list.find((p) => p.id === card.id) || slimPrinting(card);
+    currentPrintings = [scanned, ...list.filter((p) => p.id !== card.id)];
+    renderEditions(true);
+  } catch (error) { trace(`editions error ${error.message}`); }
+}
+
+function renderEditions(scrollToSelected = false) {
+  const many = currentPrintings.length > 1;
+  const { shown, hidden } = filterEditions(currentPrintings, editionFilter);
+  const lang = currentLanguage();
+  const finish = currentEntry?.finish || currentFinish;
+  document.querySelectorAll('[data-editions]').forEach((box) => {
+    box.hidden = !many;
+    box.querySelector('.ed-filter').hidden = currentPrintings.length <= 8;
+    const strip = box.querySelector('.ed-strip');
+    strip.replaceChildren();
+    for (const printing of shown) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'ed'; button.setAttribute('role', 'option');
+      const selected = printing.id === currentCard?.id; button.setAttribute('aria-selected', String(selected)); button.dataset.id = printing.id;
+      button.setAttribute('aria-label', `${printing.set_name} ${printing.set.toUpperCase()} numéro ${printing.collector_number}`);
+      const frame = document.createElement('div'); frame.className = 'ed-img';
+      if (SCRYFALL_IMAGE.test(imageOf(printing))) { const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.src = imageOf(printing); frame.append(img); }
+      const set = document.createElement('div'); set.className = 'ed-set';
+      const icon = document.createElement('img'); icon.alt = ''; icon.loading = 'lazy'; icon.src = `https://svgs.scryfall.io/sets/${encodeURIComponent(printing.set)}.svg`; icon.onerror = () => icon.remove();
+      set.append(icon, `${printing.set.toUpperCase()} #${printing.collector_number}`);
+      const name = document.createElement('div'); name.className = 'ed-name'; name.textContent = printing.set_name;
+      const price = document.createElement('div'); price.className = 'ed-price';
+      price.textContent = currentPlayinRows.length ? priceText(priceData(printing, currentPlayinRows, lang)[finish]) : (playinSettled ? '—' : '…');
+      button.append(frame, set, name, price);
+      button.addEventListener('click', () => chooseEdition(printing));
+      strip.append(button);
+    }
+    if (!shown.length) { const none = document.createElement('div'); none.className = 'ed-more'; none.textContent = 'Aucune édition ne correspond.'; strip.append(none); }
+    if (hidden) { const more = document.createElement('div'); more.className = 'ed-more'; more.textContent = `+${hidden} autres : filtre pour les voir`; strip.append(more); }
+    if (scrollToSelected) strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  });
+}
+
+function chooseEdition(printing) {
+  if (!printing || printing.id === currentCard?.id) return;
+  currentCard = printing;
+  if (currentEntry) Object.assign(currentEntry, { id: printing.id, image: imageOf(printing), set: printing.set, number: printing.collector_number, setName: printing.set_name, promo: printing.promo, fullArt: printing.full_art, frameEffects: printing.frame_effects });
+  renderCardInfo(printing);
+  if (currentPlayinRows.length) showBestPlayinPrice(); else { setBind('normal', '…'); setBind('foil', '…'); }
+  trace(`edition ${printing.set}#${printing.collector_number}`);
+  renderEditions(); updateSession();
+}
+document.querySelectorAll('.js-ed-filter').forEach((input) => input.addEventListener('input', () => {
+  editionFilter = input.value; document.querySelectorAll('.js-ed-filter').forEach((other) => { if (other !== input) other.value = input.value; }); renderEditions();
+}));
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(searchName(card))}`; }
 
@@ -354,6 +438,10 @@ function parsePlayinRows(html) {
 
 function paintPrices(item) {
   setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil));
+  if (item.prices.matched === false) {
+    setBind('note', item.prices.ambiguous ? 'Plusieurs éditions Playin correspondent : pas de prix. Vérifie sur Playin.' : 'Cette édition n’a pas de ligne équivalente chez Playin : pas de prix.');
+    setPressed(item.finish); return;
+  }
   setBind('note', `${item.prices.edition || 'Édition inconnue'} · ${item.language.toUpperCase()} Mint/Nmint · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total. Vérifie l’édition.${Number.isFinite(item.prices[item.finish])?'':` Pas de tarif ${item.finish==='foil'?'Foil':'Normal'}.`}`);
   setPressed(item.finish);
 }
@@ -408,15 +496,18 @@ async function fetchPlayinRows(name) {
   throw lastError;
 }
 
+const entryPrinting = (entry, fallback) => ({ name: entry.name, set_name: entry.setName ?? fallback.set_name, promo: entry.promo ?? fallback.promo, full_art: entry.fullArt ?? fallback.full_art, frame_effects: entry.frameEffects ?? fallback.frame_effects });
+
 async function queryPlayinPrice(card, entry = null) {
-  if(currentCard===card) currentPlayinRows = [];
+  const sameCard = () => currentCard && searchName(currentCard) === searchName(card);
+  if(sameCard()) { currentPlayinRows = []; playinSettled = false; }
   try {
     const rows = await fetchPlayinRows(searchName(card));
-    if(entry) { entry.prices=priceData(card,rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
-    if(currentCard===card) {currentPlayinRows=rows; showBestPlayinPrice();}
+    if(entry) { entry.prices=priceData(entryPrinting(entry, card),rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
+    if(sameCard()) {currentPlayinRows=rows; playinSettled=true; showBestPlayinPrice(); renderEditions();}
   } catch (error) {
     if(entry) {entry.priceState='Prix indisponible'; updateSession();}
-    if(currentCard===card) {setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`);}
+    if(sameCard()) {playinSettled=true; setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`); renderEditions();}
   }
 }
 

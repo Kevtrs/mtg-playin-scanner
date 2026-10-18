@@ -58,3 +58,14 @@ export function selectHistory(items, filters = {}, now = new Date()) {
     return (difference || a.index-b.index)*(filters.sort==='oldest'?1:-1);
   }).map(({item})=>item);
 }
+
+// Editions strip: keep the printings whose set name, set code or collector number match the query.
+export function filterEditions(printings, query, limit = 40) {
+  const fold = (text) => String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const words = fold(query).split(/\s+/).filter(Boolean);
+  const matches = printings.filter((p) => {
+    const haystack = fold(`${p.set_name} ${p.set} ${p.collector_number}`);
+    return words.every((word) => haystack.includes(word));
+  });
+  return { shown: matches.slice(0, limit), hidden: Math.max(0, matches.length - limit) };
+}

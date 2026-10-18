@@ -25,7 +25,7 @@ test('plain card without frame_effects prefers the plain printing over showcase'
   assert.ok(printingScore(plain,card)>printingScore(showcase,card));
   assert.equal(priceData(card,[showcase,plain],'Fr').normal,1);
 });
-import {searchName, compactRows} from '../src/playin.js';
+import {searchName, compactRows, normalizedWords, editionOverlap} from '../src/playin.js';
 test('double-faced cards are searched by their front face',()=>{
   assert.equal(searchName({name:'Delver of Secrets // Insectile Aberration'}),'Delver of Secrets');
   assert.equal(searchName({name:'Éclair'}),'Éclair');
@@ -58,4 +58,30 @@ test('compacted rows give the same prices as the full rows and are smaller',()=>
   for(const lang of ['Fr','En']) assert.deepEqual(priceData(card,compact,lang),priceData(card,rows,lang));
   assert.ok(JSON.stringify(compact).length<JSON.stringify(rows).length);
   assert.deepEqual(compactRows([{nameFr:'a',nameEn:'a',edition:'x',variants:[{label:'Fr Played',price:1,foil:false}]}]),[]);
+});
+
+const mk=(edition,n=1)=>({nameFr:'x',nameEn:'Lightning Bolt',edition,variants:[{label:'Fr Mint/Nmint',price:n,foil:false},{label:'Fr Mint/Nmint foil',price:n*2,foil:true}]});
+test('ordinals and French editions line up (Fourth Edition = 4eme Edition)',()=>{
+  assert.deepEqual(normalizedWords('Fourth Edition'),['4']);
+  assert.deepEqual(normalizedWords('4ème Edition'),['4']);
+  assert.deepEqual(normalizedWords('Classic Sixth Edition'),['classic','6']);
+  assert.deepEqual(normalizedWords('Magic: The Gathering | Le Hobbit'),['hobbit']);
+  const card={name:'Lightning Bolt',set_name:'Fourth Edition'};
+  const rows=[mk('Alpha',300),mk('4ème Edition',1),mk('Beatdown',2.5)];
+  assert.equal(priceData(card,rows,'Fr').normal,1);
+});
+test("no equivalent Playin edition means no price, never another edition's price",()=>{
+  const card={name:'Lightning Bolt',set_name:'The List'};
+  const out=priceData(card,[mk('4ème Edition',1),mk('Alpha',300)],'Fr');
+  assert.equal(out.normal,null); assert.equal(out.foil,null); assert.equal(out.matched,false); assert.equal(out.ambiguous,false);
+});
+test('ambiguous siblings give no price instead of a coin flip',()=>{
+  const card={name:'Lightning Bolt',set_name:'Zendikar Rising',promo:false,full_art:false};
+  const out=priceData(card,[mk('Zendikar',1),mk("Zendikar l'Eveil",2)],'Fr');
+  assert.equal(out.matched,false); assert.equal(out.ambiguous,true); assert.equal(out.normal,null);
+});
+test('close English/French cognates still match',()=>{
+  assert.ok(editionOverlap({edition:'Légendes'},{set_name:'Legends'})>=2);
+  assert.ok(editionOverlap({edition:'Spirale Temporelle'},{set_name:'Time Spiral'})>=2);
+  assert.equal(editionOverlap({edition:'Alpha'},{set_name:'The List'}),0);
 });
