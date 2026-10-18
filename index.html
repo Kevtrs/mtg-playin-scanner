@@ -48,6 +48,7 @@
                 <p>La caméra s’active quand tu appuies sur Démarrer.</p>
               </div>
             </div>
+            <canvas id="preview" class="preview" aria-hidden="true"></canvas>
             <div class="guide" aria-hidden="true"><div class="guide-box"><span></span><span></span><span></span><span></span></div></div>
             <div id="scan-flash" class="scan-flash" aria-hidden="true"></div>
 
@@ -218,6 +219,7 @@
                   <label class="check"><input type="checkbox" id="dx-nooverlay" /><span>Sans contour vert sur la caméra</span></label>
                   <label class="check"><input type="checkbox" id="dx-minimalui" /><span>Interface minimale pendant le scan</span></label>
                   <label class="check"><input type="checkbox" id="dx-fullres" /><span>Caméra pleine résolution (comme la démo)</span></label>
+                  <label class="check"><input type="checkbox" id="dx-nativevideo" /><span>Aperçu caméra natif (ancien affichage, vidéo directe)</span></label>
                   <label class="check"><input type="checkbox" id="dx-catv2" /><span>Catalogue v2 (celui de la démo, mis à jour en ligne)</span></label>
                   <button id="dx-demo" class="btn btn-quiet" type="button"></button>
                 </fieldset>

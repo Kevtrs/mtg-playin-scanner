@@ -43,7 +43,8 @@ try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionSt
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
 // Diagnostic switches (Collection > Diagnostic): each turns one suspect off so a crash can be bisected.
-const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2'];
+const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2', 'nativevideo'];
+const DX_DEMO = DX.filter((name) => name !== 'nativevideo'); // the demo profile never re-enables the old native video
 const dx = Object.fromEntries(DX.map((name) => [name, store.get(`dx-${name}`) === '1']));
 const dxActive = DX.filter((name) => dx[name]);
 const lightProfile = lightMode && !dx.fullres;
@@ -150,11 +151,37 @@ function pauseScanner(message) {
   scanner.stop(); setCamera(false); setStatus(message);
 }
 
+// Canvas preview (15 fps), painted from the hidden <video> with a "cover" crop.
+const PREVIEW_INTERVAL_MS = 1000 / 15;
+let previewFrame = null;
+let previewLast = 0;
+function stopPreview() { if (previewFrame !== null) cancelAnimationFrame(previewFrame); previewFrame = null; }
+function startPreview() {
+  stopPreview();
+  if (dx.nativevideo) return;
+  const canvas = $('preview'); const ctx = canvas.getContext('2d', { alpha: false });
+  const draw = (now) => {
+    previewFrame = requestAnimationFrame(draw);
+    if (now - previewLast < PREVIEW_INTERVAL_MS) return;
+    previewLast = now;
+    const video = document.querySelector('#cv-scanner video');
+    if (!video || !video.videoWidth) return;
+    const width = canvas.clientWidth; const height = canvas.clientHeight;
+    if (!width || !height) return;
+    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    const scale = Math.max(width / video.videoWidth, height / video.videoHeight);
+    const drawWidth = video.videoWidth * scale; const drawHeight = video.videoHeight * scale;
+    ctx.drawImage(video, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+  };
+  previewFrame = requestAnimationFrame(draw);
+}
+
 function setCamera(running) {
   scannerStarted = running; trace(running ? 'camera start' : 'camera stop');
   $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
   els.toggle.dataset.running = String(running);
   $('viewfinder').dataset.live = String(running);
+  running ? startPreview() : stopPreview();
   try { running ? sessionStorage.setItem('mtg-scanning', '1') : sessionStorage.removeItem('mtg-scanning'); } catch {}
   clearInterval(idleTimer); idleTimer = null;
   if (running) {
@@ -465,8 +492,8 @@ for (const name of DX) {
   box.addEventListener('change', () => { store.set(`dx-${name}`, box.checked ? '1' : '0'); sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload(); });
 }
 $('dx-demo').addEventListener('click', () => {
-  const allOn = DX.every((name) => dx[name]);
-  for (const name of DX) store.set(`dx-${name}`, allOn ? '0' : '1');
+  const allOn = DX_DEMO.every((name) => dx[name]);
+  for (const name of DX) store.set(`dx-${name}`, allOn || name === 'nativevideo' ? '0' : '1');
   sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload();
 });
-$('dx-demo').textContent = DX.every((name) => dx[name]) ? 'Remettre le profil normal' : 'Profil « démo » (tout désactiver)';
+$('dx-demo').textContent = DX_DEMO.every((name) => dx[name]) ? 'Remettre le profil normal' : 'Profil « démo » (tout désactiver)';
