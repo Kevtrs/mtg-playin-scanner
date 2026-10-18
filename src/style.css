@@ -230,3 +230,25 @@ input::placeholder { color: var(--muted); }
 .viewfinder[data-live="false"] .preview { display: none; }
 html:not(.dx-nativevideo) #cv-scanner .cv-applet__video { display: none !important; }
 html.dx-nativevideo .preview { display: none !important; }
+
+/* ───────────── Editions strip (like Manabox) ───────────── */
+.editions { display: grid; gap: var(--space-2); }
+.ed-filter input { min-height: 40px; font-size: var(--text-s); }
+.ed-strip { display: flex; gap: var(--space-2); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 2px 0 var(--space-2); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.ed-strip::-webkit-scrollbar { display: none; }
+.ed { flex: none; width: 96px; display: grid; gap: 3px; justify-items: center; align-content: start; padding: 4px; border: 2px solid transparent; border-radius: 10px; background: transparent; scroll-snap-align: center; text-align: center; transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease); }
+.ed:active { transform: scale(0.98); }
+.ed .ed-img { width: 100%; aspect-ratio: 63 / 88; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.ed .ed-img img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.ed .ed-set { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: var(--text-xs); font-weight: 650; color: var(--ink-2); line-height: 1.2; }
+.ed .ed-set img { width: 14px; height: 14px; filter: invert(1) opacity(0.85); flex: none; }
+.ed .ed-name { font-size: 0.6875rem; color: var(--muted); line-height: 1.2; max-height: 2.4em; overflow: hidden; }
+.ed .ed-price { font-size: var(--text-s); font-weight: 750; font-variant-numeric: tabular-nums; }
+.ed[aria-selected="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.ed[aria-selected="true"] .ed-set { color: var(--ink); }
+.ed-more { flex: none; align-self: center; padding: 0 var(--space-3); color: var(--muted); font-size: var(--text-xs); text-align: center; max-width: 90px; }
+/* In the scanner the camera must stay visible: compact strip (set name omitted, smaller cards). */
+#sheet .ed { width: 76px; padding: 3px; }
+#sheet .ed-name { display: none; }
+#sheet .ed-filter input { min-height: 36px; }
+#sheet .ed-price { font-size: var(--text-xs); }
