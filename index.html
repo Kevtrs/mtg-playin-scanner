@@ -76,12 +76,6 @@
                 </select>
               </label>
             </div>
-            <div class="editions" data-editions hidden>
-              <label class="ed-filter" hidden><span class="sr-only">Filtrer les éditions</span><input type="search" class="js-ed-filter" placeholder="Filtrer les éditions" autocomplete="off" /></label>
-              <div class="ed-strip" role="listbox" aria-label="Éditions de la carte"></div>
-            </div>
-
-
             <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
               <button class="price" data-finish="normal" aria-pressed="true">
                 <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
@@ -93,6 +87,7 @@
               </button>
             </div>
             <p data-bind="note" class="price-note">Touche Foil si ta carte est brillante.</p>
+            <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
 
             <div class="controls">
               <button id="camera-toggle" class="btn btn-primary" data-running="false">
@@ -141,13 +136,7 @@
                     <option value="En">EN</option>
                   </select>
                 </label>
-              </div>              <div class="editions" data-editions hidden>
-              <label class="ed-filter" hidden><span class="sr-only">Filtrer les éditions</span><input type="search" class="js-ed-filter" placeholder="Filtrer les éditions" autocomplete="off" /></label>
-              <div class="ed-strip" role="listbox" aria-label="Éditions de la carte"></div>
-            </div>
-
-
-              <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
+              </div>              <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
                 <button class="price" data-finish="normal" aria-pressed="true">
                   <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
                   <strong data-bind="normal">—</strong>
@@ -158,6 +147,7 @@
                 </button>
               </div>
               <p data-bind="note" class="price-note"></p>
+              <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
               <div class="more-actions">
                 <button class="btn btn-primary js-add"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
                 <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg>Voir sur Playin</button>
@@ -239,6 +229,19 @@
           </div>
         </section>
 
+        <section id="ed-sheet" class="ed-sheet" role="dialog" aria-label="Éditions de la carte" hidden>
+          <div class="ed-grab" aria-hidden="true"></div>
+          <div class="ed-head">
+            <label id="ed-filter-wrap" class="ed-filter" hidden><span class="sr-only">Filtrer les éditions</span>
+              <svg class="i" aria-hidden="true"><use href="#i-search" /></svg>
+              <input id="ed-filter-input" type="search" placeholder="Filtrer les éditions" autocomplete="off" />
+            </label>
+            <strong id="ed-title" class="ed-title">Éditions</strong>
+            <button id="ed-close" class="btn-icon" type="button" aria-label="Fermer les éditions"><svg class="i" aria-hidden="true"><use href="#i-close" /></svg></button>
+          </div>
+          <div id="ed-strip" class="ed-strip" role="listbox" aria-label="Éditions de la carte"></div>
+        </section>
+
         <button id="undo-delete" class="toast-action" hidden>Carte retirée <span>Annuler</span></button>
 
         <aside id="install-help" class="install-help" hidden>
@@ -262,6 +265,23 @@
         </button>
       </nav>
     </div>
+
+    <section id="ed-zoom" class="ed-zoom" role="dialog" aria-modal="true" aria-label="Édition en grand" hidden>
+      <div class="ed-zoom-bar">
+        <span id="ed-zoom-count" class="ed-zoom-count"></span>
+        <button id="ed-zoom-close" class="btn-icon" type="button" aria-label="Fermer"><svg class="i" aria-hidden="true"><use href="#i-close" /></svg></button>
+      </div>
+      <div id="ed-zoom-stage" class="ed-zoom-stage">
+        <button id="ed-zoom-prev" class="ed-zoom-nav ed-zoom-prev" type="button" aria-label="Édition précédente"><svg class="i" aria-hidden="true"><use href="#i-chevron" /></svg></button>
+        <img id="ed-zoom-img" alt="" />
+        <button id="ed-zoom-next" class="ed-zoom-nav ed-zoom-next" type="button" aria-label="Édition suivante"><svg class="i" aria-hidden="true"><use href="#i-chevron" /></svg></button>
+      </div>
+      <div class="ed-zoom-info">
+        <strong id="ed-zoom-set"></strong>
+        <span id="ed-zoom-prices" class="ed-zoom-prices"></span>
+        <button id="ed-zoom-choose" class="btn btn-primary" type="button">Choisir cette édition</button>
+      </div>
+    </section>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
