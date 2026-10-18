@@ -343,12 +343,15 @@ function renderCard(card) {
   setPressed('normal');
 }
 
-// ── Editions strip: every printing of the card, with its own Playin price ──
+// ── Editions: offered on demand, and only for printings that share the scanned card's illustration ──
 const printingsCache = new Map();
 let currentPrintings = [];
 let editionFilter = '';
 let playinSettled = false; // true once the Playin request for the current card is over (success or not)
-const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, illustration_id: c.illustration_id || c.card_faces?.[0]?.illustration_id, image_uris: { small: imageOf(c) }, prints_search_uri: c.prints_search_uri });
+let zoomList = [];
+let zoomIndex = 0;
+const normalImageOf = (c) => c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
+const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, illustration_id: c.illustration_id || c.card_faces?.[0]?.illustration_id, image_uris: { small: imageOf(c), normal: normalImageOf(c) }, prints_search_uri: c.prints_search_uri });
 
 async function loadPrintings(card) {
   const key = card.oracle_id || card.id;
@@ -361,66 +364,120 @@ async function loadPrintings(card) {
   return list;
 }
 
+// Looks up the doubtful editions in the background; nothing opens by itself, only a button appears.
 async function showEditions(card) {
-  currentPrintings = []; editionFilter = '';
-  document.querySelectorAll('.js-ed-filter').forEach((input) => { input.value = ''; });
-  renderEditions();
+  currentPrintings = []; editionFilter = ''; closeEditions(); updateEditionsButtons();
   try {
-    let list = await loadPrintings(card);
+    const list = await loadPrintings(card);
     if (!currentCard || searchName(currentCard) !== searchName(card)) return; // the user moved on
-    // Only offer editions that share the scanned card's illustration: the engine already tells apart
-    // different artworks, so those are the only ones where the edition can really be doubtful.
     const scanned = list.find((p) => p.id === card.id) || slimPrinting(card);
     const siblings = sameIllustration(list, scanned).filter((p) => p.id !== scanned.id);
     currentPrintings = siblings.length ? [scanned, ...siblings] : [];
-    renderEditions(true);
+    updateEditionsButtons();
   } catch (error) { trace(`editions error ${error.message}`); }
 }
 
-function renderEditions(scrollToSelected = false) {
-  const many = currentPrintings.length > 1;
-  const { shown, hidden } = filterEditions(currentPrintings, editionFilter);
-  const lang = currentLanguage();
-  const finish = currentEntry?.finish || currentFinish;
-  document.querySelectorAll('[data-editions]').forEach((box) => {
-    box.hidden = !many;
-    box.querySelector('.ed-filter').hidden = currentPrintings.length <= 8;
-    const strip = box.querySelector('.ed-strip');
-    strip.replaceChildren();
-    for (const printing of shown) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'ed'; button.setAttribute('role', 'option');
-      const selected = printing.id === currentCard?.id; button.setAttribute('aria-selected', String(selected)); button.dataset.id = printing.id;
-      button.setAttribute('aria-label', `${printing.set_name} ${printing.set.toUpperCase()} numéro ${printing.collector_number}`);
-      const frame = document.createElement('div'); frame.className = 'ed-img';
-      if (SCRYFALL_IMAGE.test(imageOf(printing))) { const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.src = imageOf(printing); frame.append(img); }
-      const set = document.createElement('div'); set.className = 'ed-set';
-      const icon = document.createElement('img'); icon.alt = ''; icon.loading = 'lazy'; icon.src = `https://svgs.scryfall.io/sets/${encodeURIComponent(printing.set)}.svg`; icon.onerror = () => icon.remove();
-      set.append(icon, `${printing.set.toUpperCase()} #${printing.collector_number}`);
-      const name = document.createElement('div'); name.className = 'ed-name'; name.textContent = printing.set_name;
-      const price = document.createElement('div'); price.className = 'ed-price';
-      price.textContent = currentPlayinRows.length ? priceText(priceData(printing, currentPlayinRows, lang)[finish]) : (playinSettled ? '—' : '…');
-      button.append(frame, set, name, price);
-      button.addEventListener('click', () => chooseEdition(printing));
-      strip.append(button);
-    }
-    if (!shown.length) { const none = document.createElement('div'); none.className = 'ed-more'; none.textContent = 'Aucune édition ne correspond.'; strip.append(none); }
-    if (hidden) { const more = document.createElement('div'); more.className = 'ed-more'; more.textContent = `+${hidden} autres : filtre pour les voir`; strip.append(more); }
-    if (scrollToSelected) strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
-  });
+function updateEditionsButtons() {
+  const count = currentPrintings.length;
+  document.querySelectorAll('.js-ed-open').forEach((button) => { button.hidden = count < 2; button.querySelector('.ed-open-count').textContent = String(count); });
 }
+
+const editionPrices = (printing) => currentPlayinRows.length ? priceData(printing, currentPlayinRows, currentLanguage()) : null;
+const editionPriceText = (printing, finish) => { const prices = editionPrices(printing); return prices ? priceText(prices[finish]) : (playinSettled ? '—' : '…'); };
+
+function renderEditions(scrollToSelected = false) {
+  updateEditionsButtons();
+  if (!$('ed-zoom').hidden) renderZoom();
+  if ($('ed-sheet').hidden) return;
+  const { shown, hidden } = filterEditions(currentPrintings, editionFilter);
+  const finish = currentEntry?.finish || currentFinish;
+  $('ed-filter-wrap').hidden = currentPrintings.length <= 8;
+  $('ed-title').textContent = `Éditions (${currentPrintings.length})`;
+  const strip = $('ed-strip'); strip.replaceChildren();
+  shown.forEach((printing, index) => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'ed'; button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(printing.id === currentCard?.id)); button.dataset.id = printing.id;
+    button.setAttribute('aria-label', `${printing.set_name} ${printing.set.toUpperCase()} numéro ${printing.collector_number} : voir en grand`);
+    const frame = document.createElement('div'); frame.className = 'ed-img';
+    if (SCRYFALL_IMAGE.test(imageOf(printing))) { const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.src = imageOf(printing); frame.append(img); }
+    const set = document.createElement('div'); set.className = 'ed-set';
+    const icon = document.createElement('img'); icon.alt = ''; icon.loading = 'lazy'; icon.src = `https://svgs.scryfall.io/sets/${encodeURIComponent(printing.set)}.svg`; icon.onerror = () => icon.remove();
+    set.append(icon, `${printing.set.toUpperCase()} #${printing.collector_number}`);
+    const name = document.createElement('div'); name.className = 'ed-name'; name.textContent = printing.set_name;
+    const price = document.createElement('div'); price.className = 'ed-price'; price.textContent = editionPriceText(printing, finish);
+    button.append(frame, set, name, price);
+    button.addEventListener('click', () => openZoom(shown, index));
+    strip.append(button);
+  });
+  if (!shown.length) { const none = document.createElement('div'); none.className = 'ed-more'; none.textContent = 'Aucune édition ne correspond.'; strip.append(none); }
+  if (hidden) { const more = document.createElement('div'); more.className = 'ed-more'; more.textContent = `+${hidden} autres : filtre pour les voir`; strip.append(more); }
+  if (scrollToSelected) strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+}
+
+function openEditions() {
+  if (currentPrintings.length < 2) return;
+  $('ed-sheet').hidden = false;
+  document.querySelectorAll('.js-ed-open').forEach((button) => button.setAttribute('aria-expanded', 'true'));
+  renderEditions(true);
+}
+function closeEditions() {
+  closeZoom();
+  $('ed-sheet').hidden = true;
+  document.querySelectorAll('.js-ed-open').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+// Full-size view: swipe or use the arrows to flip between editions and compare them with the real card.
+function openZoom(list, index) { zoomList = list; zoomIndex = index; $('ed-zoom').hidden = false; renderZoom(); $('ed-zoom-choose').focus({ preventScroll: true }); }
+function closeZoom() { $('ed-zoom').hidden = true; $('ed-zoom-img').removeAttribute('src'); }
+function stepZoom(delta) { const next = zoomIndex + delta; if (next < 0 || next >= zoomList.length) return; zoomIndex = next; renderZoom(); }
+function renderZoom() {
+  const printing = zoomList[zoomIndex]; if (!printing) return;
+  const big = normalImageOf(printing) || imageOf(printing);
+  const img = $('ed-zoom-img'); img.alt = `${printing.printed_name || printing.name}, ${printing.set_name}`;
+  if (SCRYFALL_IMAGE.test(big) && img.getAttribute('src') !== big) img.src = big;
+  for (const neighbour of [zoomList[zoomIndex + 1], zoomList[zoomIndex - 1]]) { // warm the next card so flipping is instant
+    const url = neighbour && normalImageOf(neighbour); if (url && SCRYFALL_IMAGE.test(url)) new Image().src = url;
+  }
+  $('ed-zoom-count').textContent = `${zoomIndex + 1} / ${zoomList.length}`;
+  $('ed-zoom-set').textContent = `${printing.set_name} · ${printing.set.toUpperCase()} #${printing.collector_number}`;
+  $('ed-zoom-prices').textContent = `Normal ${editionPriceText(printing, 'normal')} · Foil ${editionPriceText(printing, 'foil')}`;
+  $('ed-zoom-prev').disabled = zoomIndex === 0; $('ed-zoom-next').disabled = zoomIndex === zoomList.length - 1;
+  const current = printing.id === currentCard?.id; const choose = $('ed-zoom-choose');
+  choose.disabled = current; choose.textContent = current ? '✓ Édition actuelle' : 'Choisir cette édition';
+}
+function chooseFromZoom() { const printing = zoomList[zoomIndex]; if (!printing) return; chooseEdition(printing); closeEditions(); }
 
 function chooseEdition(printing) {
   if (!printing || printing.id === currentCard?.id) return;
   currentCard = printing;
   if (currentEntry) Object.assign(currentEntry, { id: printing.id, image: imageOf(printing), set: printing.set, number: printing.collector_number, setName: printing.set_name, promo: printing.promo, fullArt: printing.full_art, frameEffects: printing.frame_effects });
   renderCardInfo(printing);
-  if (currentPlayinRows.length) showBestPlayinPrice(); else { setBind('normal', '…'); setBind('foil', '…'); }
+  if (currentPlayinRows.length) showBestPlayinPrice(); else { const none = playinSettled ? '—' : '…'; setBind('normal', none); setBind('foil', none); }
   trace(`edition ${printing.set}#${printing.collector_number}`);
   renderEditions(); updateSession();
 }
-document.querySelectorAll('.js-ed-filter').forEach((input) => input.addEventListener('input', () => {
-  editionFilter = input.value; document.querySelectorAll('.js-ed-filter').forEach((other) => { if (other !== input) other.value = input.value; }); renderEditions();
-}));
+document.querySelectorAll('.js-ed-open').forEach((button) => button.addEventListener('click', () => ($('ed-sheet').hidden ? openEditions() : closeEditions())));
+$('ed-close').addEventListener('click', closeEditions);
+$('ed-filter-input').addEventListener('input', () => { editionFilter = $('ed-filter-input').value; renderEditions(); });
+$('ed-zoom-close').addEventListener('click', closeZoom);
+$('ed-zoom-prev').addEventListener('click', () => stepZoom(-1));
+$('ed-zoom-next').addEventListener('click', () => stepZoom(1));
+$('ed-zoom-choose').addEventListener('click', chooseFromZoom);
+{
+  let touchStartX = null;
+  const stage = $('ed-zoom-stage');
+  stage.addEventListener('touchstart', (event) => { touchStartX = event.changedTouches[0].clientX; }, { passive: true });
+  stage.addEventListener('touchend', (event) => {
+    if (touchStartX === null) return;
+    const dx = event.changedTouches[0].clientX - touchStartX; touchStartX = null;
+    if (Math.abs(dx) > 40) stepZoom(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { if (!$('ed-zoom').hidden) closeZoom(); else if (!$('ed-sheet').hidden) closeEditions(); }
+  else if (!$('ed-zoom').hidden && event.key === 'ArrowRight') stepZoom(1);
+  else if (!$('ed-zoom').hidden && event.key === 'ArrowLeft') stepZoom(-1);
+});
 
 function directPlayinUrl(card) { return `https://rachat.play-in.com/magic/result.php?r=${encodeURIComponent(searchName(card))}`; }
 
