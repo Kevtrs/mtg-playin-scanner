@@ -17,6 +17,7 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
     <title>MTG Playin Scanner</title>
+    <script>try{var t=localStorage.getItem('mtg-theme');document.documentElement.dataset.theme=(t==='light'||t==='auto')?t:'dark';}catch(e){document.documentElement.dataset.theme='dark';}</script>
   </head>
   <body>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -45,7 +46,12 @@
             <div id="cv-scanner" class="cv-scanner">
               <div class="placeholder">
                 <svg class="i i-lg" aria-hidden="true"><use href="#i-scan" /></svg>
-                <p>La caméra s’active quand tu appuies sur Démarrer.</p>
+                <p class="placeholder-lead">La caméra s’active quand tu appuies sur Démarrer.</p>
+                <ol id="onboarding" class="steps" hidden>
+                  <li><b>Démarre</b> le scanner et présente une carte entière, bien à plat.</li>
+                  <li><b>Vérifie</b> l’édition et le prix de rachat ; touche Foil si besoin.</li>
+                  <li><b>Retrouve</b> toutes tes cartes dans Collection, avec leur total.</li>
+                </ol>
               </div>
             </div>
             <canvas id="preview" class="preview" aria-hidden="true"></canvas>
@@ -63,12 +69,17 @@
           </div>
 
           <section class="sheet" id="sheet" aria-label="Dernière carte">
+            <div id="recent" class="recent" hidden>
+              <div id="recent-list" class="recent-list" role="group" aria-label="Derniers scans : touche une carte pour la corriger"></div>
+              <span id="pile-chip" class="pile-chip"></span>
+            </div>
             <div class="sheet-id">
               <div class="thumb" data-bind="thumb" aria-hidden="true"></div>
               <div class="sheet-text">
-                <strong data-bind="name" class="card-name">Présente une carte</strong>
+                <div class="name-row"><strong data-bind="name" class="card-name">Présente une carte</strong><span class="star" data-valuable hidden title="Carte de valeur" aria-label="Carte de valeur">★</span></div>
                 <span data-bind="meta" class="card-meta">Une carte entière, bien à plat.</span>
               </div>
+              <button class="foil-default js-foil-default" type="button" aria-pressed="false" title="Compter les prochains scans en Foil">Foil</button>
               <label class="lang"><span class="sr-only">Langue du prix</span>
                 <select class="js-lang" aria-label="Langue du prix">
                   <option value="Fr">FR</option>
@@ -127,9 +138,10 @@
               <div class="sheet-id">
                 <div class="thumb" data-bind="thumb" aria-hidden="true"></div>
                 <div class="sheet-text">
-                  <strong data-bind="name" class="card-name"></strong>
+                  <div class="name-row"><strong data-bind="name" class="card-name"></strong><span class="star" data-valuable hidden title="Carte de valeur" aria-label="Carte de valeur">★</span></div>
                   <span data-bind="meta" class="card-meta"></span>
                 </div>
+                <button class="foil-default js-foil-default" type="button" aria-pressed="false" title="Compter les prochains scans en Foil">Foil</button>
                 <label class="lang"><span class="sr-only">Langue du prix</span>
                   <select class="js-lang" aria-label="Langue du prix">
                     <option value="Fr">FR</option>
@@ -164,8 +176,12 @@
                 <p class="coll-label">Valeur de rachat connue</p>
                 <p class="coll-total"><strong id="total">0,00 €</strong></p>
                 <p id="unpriced" class="coll-unpriced"></p>
+                <p id="pile-line" class="coll-pile"></p>
               </div>
-              <p class="coll-count"><strong id="count">0</strong> cartes</p>
+              <div class="coll-side">
+                <p class="coll-count"><strong id="count">0</strong> cartes</p>
+                <button id="new-pile" class="btn btn-quiet btn-small" type="button">Nouvelle pile</button>
+              </div>
             </header>
 
             <div class="searchbar">
@@ -190,6 +206,7 @@
               <label>Période
                 <select id="history-period">
                   <option value="all">Toujours</option>
+                  <option value="batch">Pile en cours</option>
                   <option value="today">Aujourd’hui</option>
                   <option value="7d">7 derniers jours</option>
                   <option value="30d">30 derniers jours</option>
@@ -197,6 +214,7 @@
               </label>
               <label>Prix min. (€)<input id="history-min" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" /></label>
               <label>Prix max. (€)<input id="history-max" type="number" min="0" step="0.01" placeholder="Sans limite" inputmode="decimal" /></label>
+              <label class="wide">Mettre en avant les cartes ★ dès (€)<input id="value-threshold" type="number" min="0" step="1" placeholder="5 (0 = désactivé)" inputmode="decimal" /></label>
               <button id="reset-filters" class="btn btn-quiet">Réinitialiser les filtres</button>
             </div>
 
@@ -205,6 +223,21 @@
             <button id="history-more" class="btn btn-secondary load-more" hidden>Afficher 30 de plus</button>
 
             <footer class="coll-foot">
+              <section class="data-box" aria-labelledby="data-title">
+                <h2 id="data-title" class="data-title">Sauvegarde et export</h2>
+                <div class="data-actions">
+                  <button id="export-csv" class="btn btn-secondary" type="button">Exporter en CSV</button>
+                  <button id="export-backup" class="btn btn-secondary" type="button">Sauvegarder (fichier)</button>
+                  <button id="import-backup" class="btn btn-secondary" type="button">Restaurer un fichier</button>
+                  <input id="import-file" type="file" accept="application/json,.json" hidden />
+                </div>
+                <p id="data-status" class="data-status" role="status"></p>
+                <p id="safety-line" class="data-note"></p>
+                <button id="restore-safety" class="btn btn-quiet" type="button" hidden>Récupérer la copie automatique</button>
+                <label class="theme-label">Thème
+                  <select id="theme-select"><option value="dark">Sombre</option><option value="light">Clair</option><option value="auto">Automatique (réglage de l’iPhone)</option></select>
+                </label>
+              </section>
               <button id="clear-session" class="btn btn-danger">Vider la collection</button>
               <label class="check"><input type="checkbox" id="light-mode" /><span>Mode économie : caméra basse résolution et scan plus lent. À activer si l’app se recharge toute seule.</span></label>
               <p>Enregistrée sur cet appareil. Prix unitaires de la finition choisie.</p>
@@ -242,7 +275,7 @@
           <div id="ed-strip" class="ed-strip" role="listbox" aria-label="Éditions de la carte"></div>
         </section>
 
-        <button id="undo-delete" class="toast-action" hidden>Carte retirée <span>Annuler</span></button>
+        <button id="toast" class="toast-action" type="button" hidden><span id="toast-text"></span><span id="toast-cta" class="toast-cta"></span></button>
 
         <aside id="install-help" class="install-help" hidden>
           <div>
