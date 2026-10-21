@@ -57,7 +57,7 @@ function trace(label) {
   try {
     const lines = JSON.parse(localStorage.getItem(TRACE_KEY) || '[]');
     lines.push(`${new Date().toISOString().slice(5, 23).replace('T', ' ')} ${label}`);
-    localStorage.setItem(TRACE_KEY, JSON.stringify(lines.slice(-40)));
+    localStorage.setItem(TRACE_KEY, JSON.stringify(lines.slice(-70)));
   } catch {}
 }
 trace(`load ${performance.getEntriesByType('navigation')[0]?.type || '?'} crashed=${crashedLastRun} light=${lightMode} dx=[${dxActive.join(',') || '-'}] sw=${navigator.serviceWorker?.controller ? 'yes' : 'no'}`);
@@ -242,16 +242,14 @@ function holdCard(match) {
   if (heldKey && scanner && scanInterval !== SCAN_INTERVAL_HELD_MS) { scanInterval = SCAN_INTERVAL_HELD_MS; scanner.updateConfig({ scanIntervalMs: scanInterval }); }
 }
 
-// Last analyses with the size of the engine's WebAssembly heap: shown in the diagnostic after a crash.
-const MEM_KEY = 'mtg-mem';
+// Analyses with the size of the engine's WebAssembly heap, written into the black box (its lines are the ones
+// that provably survive a crash). "absent" means the engine did not send the measurement. Empty frames are sampled.
+let emptySamples = 0;
 function recordMem(result) {
-  if (typeof result.wasmMB !== 'number') return;
-  try {
-    const lines = JSON.parse(localStorage.getItem(MEM_KEY) || '[]');
-    const ms = Number.isFinite(result.timing?.totalMs) ? ` ${Math.round(result.timing.totalMs)}ms` : '';
-    lines.push(`${new Date().toISOString().slice(11, 23)} ${result.cardPresent === false ? 'vide ' : 'carte'} wasm=${result.wasmMB}Mo${ms}${heldKey ? ' (en attente)' : ''}`);
-    localStorage.setItem(MEM_KEY, JSON.stringify(lines.slice(-14)));
-  } catch {}
+  const empty = result.cardPresent === false;
+  if (empty && (emptySamples++ % 5 !== 0)) return;
+  const ms = Number.isFinite(result.timing?.totalMs) ? ` ${Math.round(result.timing.totalMs)}ms` : '';
+  trace(`analyse ${empty ? 'vide' : 'carte'} wasm=${typeof result.wasmMB === 'number' ? `${result.wasmMB}Mo` : 'absent'}${ms}${heldKey ? ' (attente)' : ''}`);
 }
 
 function pauseScanner(message) {
@@ -774,7 +772,6 @@ const diagnosticText = () => [
   `Collection : ${session.length} cartes`,
   `Interrupteurs actifs : ${dxActive.join(', ') || 'aucun'}`,
   `Cartes à l'envers : ${lightProfile ? 'non reconnues (mode économie)' : 'reconnues'}`,
-  '--- mémoire du moteur (dernières analyses) ---', ...JSON.parse(store.get(MEM_KEY) || '[]'),
   '--- dernières étapes ---', ...JSON.parse(store.get(TRACE_KEY) || '[]'),
 ].join('\n');
 $('trace').textContent = diagnosticText();
