@@ -1,5 +1,6 @@
 import './style.css';
-import { ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration } from './collection.js';
+import { ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration, groupEntries } from './collection.js';
+import { toCsv, makeBackup, parseBackup, mergeEntries, saveSafetyCopy, loadSafetyCopy } from './backup.js';
 import { priceData, searchName, compactRows } from './playin.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
@@ -23,7 +24,6 @@ let currentFinish = 'normal';
 let lookupSequence = 0;
 const scanGate = new ScanGate();
 let historyLimit = 30;
-let lastRemoved = null;
 const openHistory = new Set();
 const session = loadSession();
 for (const item of session) {
@@ -70,6 +70,17 @@ const setPressed = (finish) => document.querySelectorAll('[data-finish]').forEac
 const currentLanguage = () => document.querySelector('.js-lang').value;
 const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', {style:'currency',currency:'EUR'}) : 'Indisponible';
 
+// Preferences kept on the device.
+let defaultFinish = store.get('mtg-default-finish') === 'foil' ? 'foil' : 'normal';
+let valueThreshold = (() => { const stored = store.get('mtg-value-threshold'); const n = Number(stored); return stored !== null && Number.isFinite(n) && n >= 0 ? n : 5; })();
+// A "pile" is a batch of scans (e.g. one sorting session) with its own subtotal; nothing is deleted when a new one starts.
+let batch = (() => {
+  try { const saved = JSON.parse(store.get('mtg-batch') || 'null'); if (saved?.id) return saved; } catch {}
+  const fresh = { id: crypto.randomUUID(), startedAt: new Date().toISOString() }; store.set('mtg-batch', JSON.stringify(fresh)); return fresh;
+})();
+const isValuable = (price) => valueThreshold > 0 && Number.isFinite(price) && price >= valueThreshold;
+const updateValuable = (price) => document.querySelectorAll('[data-valuable]').forEach((star) => { star.hidden = !isValuable(price); });
+
 function thumbnailFor(item) {
   const thumbnail=document.createElement('div'); thumbnail.className='thumb'; thumbnail.setAttribute('aria-hidden','true');
   if(item.image && /^https:\/\/(cards\.scryfall\.io|images\.scryfall\.io)\//.test(item.image)) { const img=document.createElement('img'); img.src=item.image; img.alt=''; img.loading='lazy'; thumbnail.append(img); }
@@ -83,52 +94,123 @@ function renderHistory() {
   const focusEntry = focused?.closest('[data-entry]')?.dataset.entry;
   const focusAction = focused?.dataset.action;
   $('history').replaceChildren();
-  const items=selectHistory(session, { search:$('history-search').value, sort:$('history-sort').value, period:$('history-period').value, min:$('history-min').value, max:$('history-max').value });
-  const count=items.reduce((sum,item)=>sum+(item.quantity||1),0);
-  const subtotal=items.reduce((sum,item)=>sum+(Number.isFinite(item.price)?item.price*(item.quantity||1):0),0);
-  const filtered=items.length!==session.length;
-  $('history-summary').textContent=session.length && filtered ? `${count} carte${count===1?'':'s'} · ${money(subtotal)} dans cette sélection` : '';
-  $('history-more').hidden=items.length<=historyLimit;
-  if (!items.length) {
+  const items = selectHistory(session, { search:$('history-search').value, sort:$('history-sort').value, period:$('history-period').value, min:$('history-min').value, max:$('history-max').value, batchId:batch.id });
+  const groups = groupEntries(items);
+  const count = groups.reduce((sum, group) => sum + group.quantity, 0);
+  const subtotal = groups.reduce((sum, group) => sum + group.total, 0);
+  const valuable = valueThreshold > 0 ? groups.reduce((sum, group) => sum + (isValuable(group.rep.price) ? group.quantity : 0), 0) : 0;
+  const filtered = items.length !== session.length;
+  const parts = [];
+  if (session.length && filtered) parts.push(`${count} carte${count===1?'':'s'} · ${money(subtotal)} dans cette sélection`);
+  if (valuable) parts.push(`★ ${valuable} de valeur (dès ${money(valueThreshold)})`);
+  $('history-summary').textContent = parts.join(' · ');
+  $('history-more').hidden = groups.length <= historyLimit;
+  if (!groups.length) {
     const empty=document.createElement('div'); empty.className='empty-history';
     const title=document.createElement('strong'); const hint=document.createElement('span');
     if(session.length) { title.textContent='Aucun résultat'; hint.textContent='Aucune carte ne correspond à ces filtres.'; }
     else { title.textContent='Ta collection est vide'; hint.textContent='Scanne une carte : elle apparaîtra ici avec son prix de rachat.'; }
     empty.append(title,hint); $('history').append(empty); $('history').style.display='block';
   } else $('history').style.display='';
-  for (const item of items.slice(0,historyLimit)) {
-    const row = document.createElement('details'); row.className = 'history-item'; row.dataset.entry=item.entryId; row.open=openHistory.has(item.entryId);
-    row.addEventListener('toggle',()=>{if(row.isConnected) row.open?openHistory.add(item.entryId):openHistory.delete(item.entryId);});
+  for (const group of groups.slice(0, historyLimit)) {
+    const item = group.rep; const quantity = group.quantity;
+    const row = document.createElement('details'); row.className = 'history-item'; row.dataset.entry = group.key; row.open = openHistory.has(group.key);
+    if (isValuable(item.price)) row.classList.add('is-valuable');
+    row.addEventListener('toggle',()=>{if(row.isConnected) row.open?openHistory.add(group.key):openHistory.delete(group.key);});
     const summary=document.createElement('summary'); summary.dataset.action='expand';
     const thumbnail=thumbnailFor(item);
     const body=document.createElement('div'); body.className='history-body';
     const name=document.createElement('strong'); name.textContent=item.name;
+    if (isValuable(item.price)) { const star=document.createElement('span'); star.className='star'; star.textContent='★'; star.setAttribute('aria-label','Carte de valeur'); name.append(star); }
     const info=document.createElement('span'); info.className='history-meta'; info.textContent=`${(item.set||'').toUpperCase()} · #${item.number} · ${(item.language||'Fr').toUpperCase()} · ${item.finish==='foil'?'Foil':'Normal'}`;
     const time=document.createElement('time'); time.className='history-time';
     const date=new Date(item.scannedAt); time.textContent=Number.isNaN(date.getTime())?'Date inconnue':date.toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); if(!Number.isNaN(date.getTime())) time.dateTime=date.toISOString();
     body.append(name,info,time);
     const price=document.createElement('div'); price.className='history-price';
     const amount=document.createElement('strong'); amount.textContent=Number.isFinite(item.price)?money(item.price):'—';
-    const quantity=document.createElement('small'); quantity.textContent=(item.quantity||1)>1?`×${item.quantity}`:(Number.isFinite(item.price)?'':item.priceState||'Sans tarif'); price.append(amount,quantity);
+    const small=document.createElement('small'); small.textContent = quantity>1 ? `×${quantity}${group.total?` · ${money(group.total)}`:''}` : (Number.isFinite(item.price)?'':item.priceState||'Sans tarif'); price.append(amount,small);
     summary.append(thumbnail,body,price);
     const controls=document.createElement('div'); controls.className='history-details';
     const prices=document.createElement('p'); prices.textContent=`Normal ${priceText(item.prices.normal)} · Foil ${priceText(item.prices.foil)}`;
     const toggle=document.createElement('div'); toggle.className='finish-toggle'; toggle.setAttribute('role','group'); toggle.setAttribute('aria-label',`Finition de ${item.name}`);
     for(const [value,text] of [['normal','Normal'],['foil','Foil']]) {
       const option=document.createElement('button'); option.type='button'; option.dataset.action='finish-'+value; option.textContent=text; option.setAttribute('aria-pressed',String(item.finish===value));
-      option.onclick=()=>{item.finish=value; item.price=item.prices[item.finish]; if(currentEntry===item){currentFinish=item.finish; paintPrices(item);} updateSession();};
+      option.onclick=()=>{ for (const member of group.items) { member.finish=value; member.price=member.prices[value]; if(currentEntry===member){currentFinish=value; paintPrices(member);} } updateSession(); };
       toggle.append(option);
     }
     const remove=document.createElement('button'); remove.type='button'; remove.className='remove'; remove.dataset.action='remove';
-    remove.innerHTML='<svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>'; remove.append((item.quantity||1)>1?'Retirer un exemplaire':'Supprimer la carte');
-    remove.onclick=()=>{lastRemoved={item,index:session.indexOf(item),decrement:(item.quantity||1)>1}; if(lastRemoved.decrement) item.quantity--; else session.splice(lastRemoved.index,1); updateSession(); showUndo();};
-    controls.append(prices,toggle,remove); row.append(summary,controls); $('history').append(row);
-    if(focusEntry===item.entryId && focusAction) row.querySelector(`[data-action="${focusAction}"]`)?.focus({preventScroll:true});
+    remove.innerHTML='<svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>'; remove.append(quantity>1?'Retirer un exemplaire':'Supprimer la carte');
+    remove.onclick=()=>removeOne(group);
+    controls.append(prices,toggle,remove);
+    if (quantity>1 && group.items.length>1) {
+      const all=document.createElement('button'); all.type='button'; all.className='remove remove-all'; all.dataset.action='remove-all'; all.textContent=`Supprimer les ${quantity} exemplaires`;
+      all.onclick=()=>removeAll(group); controls.append(all);
+    }
+    row.append(summary,controls); $('history').append(row);
+    if(focusEntry===group.key && focusAction) row.querySelector(`[data-action="${focusAction}"]`)?.focus({preventScroll:true});
   }
 }
 
-let undoTimer = null;
-function showUndo() { $('undo-delete').hidden=false; clearTimeout(undoTimer); undoTimer=setTimeout(()=>{ $('undo-delete').hidden=true; lastRemoved=null; }, 6000); }
+// Removing is always undoable from a toast.
+function removeOne(group) {
+  const member = group.items.reduce((latest, other) => session.indexOf(other) > session.indexOf(latest) ? other : latest);
+  if ((member.quantity || 1) > 1) {
+    member.quantity--; updateSession();
+    showToast('Exemplaire retiré', 'Annuler', () => { member.quantity++; updateSession(); });
+  } else {
+    const index = session.indexOf(member); session.splice(index, 1); if (currentEntry === member) currentEntry = null; updateSession();
+    showToast('Carte retirée', 'Annuler', () => { session.splice(Math.min(index, session.length), 0, member); updateSession(); });
+  }
+}
+function removeAll(group) {
+  const removed = group.items.map((item) => ({ item, index: session.indexOf(item) })).sort((a, b) => a.index - b.index);
+  for (const { item } of [...removed].reverse()) session.splice(session.indexOf(item), 1);
+  if (removed.some(({ item }) => item === currentEntry)) currentEntry = null;
+  updateSession();
+  showToast(`${removed.length} cartes retirées`, 'Annuler', () => { for (const { item, index } of removed) session.splice(Math.min(index, session.length), 0, item); updateSession(); });
+}
+
+// One toast for every undo (scan, removal, clearing). It sits at the top so it never covers the scan button.
+let toastTimer = null; let toastFn = null;
+function showToast(text, cta, fn, ms = 6000) {
+  toastFn = fn || null; $('toast-text').textContent = text; $('toast-cta').textContent = fn ? cta : '';
+  $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(hideToast, ms);
+}
+function hideToast() { clearTimeout(toastTimer); toastFn = null; $('toast').hidden = true; }
+$('toast').addEventListener('click', () => { const fn = toastFn; hideToast(); fn?.(); });
+
+// Last scans: tap one to bring it back in the sheet (change edition / finish, see its price).
+const cardCache = new Map();
+function renderRecent() {
+  const last = session.slice(-5).reverse();
+  $('recent').hidden = !last.length;
+  const list = $('recent-list'); list.replaceChildren();
+  for (const entry of last) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'recent-item';
+    button.setAttribute('aria-pressed', String(entry === currentEntry));
+    button.setAttribute('aria-label', `${entry.name}, ${entry.setName || entry.set}, ${Number.isFinite(entry.price) ? money(entry.price) : 'sans prix'} : corriger`);
+    button.append(thumbnailFor(entry));
+    const price = document.createElement('b'); price.textContent = Number.isFinite(entry.price) ? money(entry.price) : (entry.priceState === 'Recherche…' ? '…' : '—'); button.append(price);
+    button.addEventListener('click', () => selectEntry(entry));
+    list.append(button);
+  }
+  const pile = session.filter((entry) => entry.batch === batch.id);
+  const pileTotal = pile.reduce((sum, entry) => sum + (Number(entry.price) || 0) * (entry.quantity || 1), 0);
+  $('pile-chip').textContent = pile.length ? `Pile ${pile.length} · ${money(pileTotal)}` : '';
+}
+async function selectEntry(entry) {
+  if (currentEntry === entry) return;
+  try {
+    let card = cardCache.get(entry.id);
+    if (!card) {
+      const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(entry.id)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw new Error(`Scryfall ${response.status}`);
+      card = await response.json(); cardCache.set(entry.id, card);
+    }
+    lookupSequence++; currentCard = card; currentEntry = entry; currentFinish = entry.finish;
+    renderCard(card); showEditions(card); queryPlayinPrice(card, entry); renderRecent();
+  } catch (error) { setStatus(`Carte introuvable : ${error.message}`, true); }
+}
 
 // Heat/battery: the recognition engine runs on the CPU. Slow it down when no card is in
 // view, and stop the camera after a while without a scan or when the app is backgrounded.
@@ -197,6 +279,7 @@ function setStatus(message, error = false) {
   els.status.classList.toggle('error', error);
 }
 
+let safetyTimer = null;
 function updateSession() {
   els.count.textContent = session.reduce((sum, item) => sum + (item.quantity || 1), 0);
   $('collection-count').textContent=els.count.textContent;
@@ -204,8 +287,12 @@ function updateSession() {
   els.total.textContent = sum.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
   const unknown=session.reduce((sum,item)=>sum+(Number.isFinite(item.price)?0:(item.quantity||1)),0);
   $('unpriced').textContent=unknown ? `${unknown} sans tarif confirmé` : '';
+  const pile = session.filter((item) => item.batch === batch.id);
+  const pileTotal = pile.reduce((acc, item) => acc + (Number(item.price) || 0) * (item.quantity || 1), 0);
+  $('pile-line').textContent = pile.length ? `Pile en cours : ${pile.length} carte${pile.length===1?'':'s'} · ${money(pileTotal)}` : 'Pile en cours : vide';
   if(!saveSession(session)) setStatus('Stockage plein ou bloqué : la collection ne peut pas être sauvegardée.', true);
-  renderHistory();
+  clearTimeout(safetyTimer); safetyTimer = setTimeout(() => { saveSafetyCopy(session); refreshDataLine(); }, 5000); // automatic hourly safety copy, off the scan's critical moment
+  renderRecent(); renderHistory();
 }
 
 async function loadScanner() {
@@ -280,30 +367,45 @@ async function handleVisualMatch(match) {
     if (!response.ok) throw new Error(`Scryfall ${response.status}`);
     const card = await response.json(); trace('scan scryfall-ok');
     const entry = addCardToSession(card); trace('scan added');
-    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish='normal'; renderCard(card); showEditions(card);}
+    cardCache.set(card.id, card); if (cardCache.size > 30) cardCache.delete(cardCache.keys().next().value);
+    offerUndoAdd(entry);
+    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish=defaultFinish; renderCard(card); showEditions(card); renderRecent();}
     trace('scan rendered'); beep(); trace('scan beep');
     if (navigator.vibrate) navigator.vibrate(80);
-    const flash = $('scan-flash'); flash.classList.add('success'); setTimeout(() => flash.classList.remove('success'), 260);
+    flashScan('success');
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ Recherche du prix…`);
     trace('scan price-start');
     await queryPlayinPrice(card, entry); trace(`scan price-done ${Number.isFinite(entry.price) ? 'ok' : 'none'}`);
+    if (!Number.isFinite(entry.price)) { flashScan('warn'); beep('none'); if (navigator.vibrate) navigator.vibrate([60, 60, 60]); }
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ ${Number.isFinite(entry.price) ? money(entry.price) : 'Prix indisponible'}. Retire-la pour scanner la suivante.`);
   } catch (error) { trace(`scan error ${error.message}`); setStatus(`Identification impossible : ${error.message}. Retire la carte puis représente-la.`, true); }
   finally { scanLock.finish(); trace('scan end'); }
 }
 
 function addCardToSession(card) {
-  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:imageOf(card), set: card.set, number: card.collector_number, setName: card.set_name, promo: card.promo, fullArt: card.full_art, frameEffects: card.frame_effects, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:'normal', language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString() };
+  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:imageOf(card), set: card.set, number: card.collector_number, setName: card.set_name, promo: card.promo, fullArt: card.full_art, frameEffects: card.frame_effects, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:defaultFinish, language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString(), batch:batch.id };
   session.push(item);
   updateSession();
   return item;
 }
 
-function beep() {
+function beep(kind = 'ok') {
   if (!audioContext) return;
-  const oscillator = audioContext.createOscillator(); const gain = audioContext.createGain(); oscillator.frequency.value = 880;
-  gain.gain.setValueAtTime(.08, audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + .12);
-  oscillator.connect(gain).connect(audioContext.destination); oscillator.start(); oscillator.stop(audioContext.currentTime + .12);
+  const tones = kind === 'none' ? [440, 330] : [880];
+  tones.forEach((frequency, index) => {
+    const start = audioContext.currentTime + index * 0.16;
+    const oscillator = audioContext.createOscillator(); const gain = audioContext.createGain(); oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(.08, start); gain.gain.exponentialRampToValueAtTime(.001, start + .12);
+    oscillator.connect(gain).connect(audioContext.destination); oscillator.start(start); oscillator.stop(start + .12);
+  });
+}
+function flashScan(kind) { const flash = $('scan-flash'); flash.classList.add(kind); setTimeout(() => flash.classList.remove(kind), 320); }
+function offerUndoAdd(entry) {
+  showToast(`${entry.name} ajoutée`, 'Annuler', () => {
+    const index = session.indexOf(entry); if (index >= 0) session.splice(index, 1);
+    if (currentEntry === entry) currentEntry = null;
+    updateSession(); setStatus(`${entry.name} retirée. Retire-la du cadre avant de la rescanner.`);
+  });
 }
 
 const LAST_SET_KEY = 'mtg-last-set';
@@ -319,7 +421,7 @@ async function lookupCard(set, number) {
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(response.status === 404 ? `aucune carte ${set.toUpperCase()} n° ${number}` : `Scryfall ${response.status}`);
-    currentCard = await response.json(); currentEntry=null; currentFinish='normal'; renderCard(currentCard); queryPlayinPrice(currentCard); showEditions(currentCard);
+    currentCard = await response.json(); currentEntry=null; currentFinish=defaultFinish; renderCard(currentCard); queryPlayinPrice(currentCard); showEditions(currentCard);
     $('search-result').hidden = false; setSearchStatus('Carte trouvée.');
   } catch (error) { setSearchStatus(`Identification impossible : ${error.message}.`, true); }
 }
@@ -340,7 +442,7 @@ function renderCardInfo(card) {
 function renderCard(card) {
   renderCardInfo(card);
   setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
-  setPressed('normal');
+  setPressed(currentFinish); updateValuable(null);
 }
 
 // ── Editions: offered on demand, and only for printings that share the scanned card's illustration ──
@@ -496,7 +598,7 @@ function parsePlayinRows(html) {
 }
 
 function paintPrices(item) {
-  setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil));
+  setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil)); updateValuable(item.prices[item.finish]);
   if (item.prices.matched === false) {
     setBind('note', item.prices.ambiguous ? 'Plusieurs éditions Playin correspondent : pas de prix. Vérifie sur Playin.' : 'Cette édition n’a pas de ligne équivalente chez Playin : pas de prix.');
     setPressed(item.finish); return;
@@ -508,6 +610,7 @@ function showBestPlayinPrice() {
   if(!currentCard || !currentPlayinRows.length) return;
   const item=currentEntry || {finish:currentFinish};
   item.language=currentLanguage(); item.prices=priceData(currentCard,currentPlayinRows,item.language); item.price=item.prices[item.finish];
+  if (currentEntry) item.priceState = ''; // the lookup is over, whether or not a tariff exists
   paintPrices(item); updateSession();
 }
 
@@ -566,7 +669,7 @@ async function queryPlayinPrice(card, entry = null) {
     if(sameCard()) {currentPlayinRows=rows; playinSettled=true; showBestPlayinPrice(); renderEditions();}
   } catch (error) {
     if(entry) {entry.priceState='Prix indisponible'; updateSession();}
-    if(sameCard()) {playinSettled=true; setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`); renderEditions();}
+    if(sameCard()) {playinSettled=true; updateValuable(null); setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`); renderEditions();}
   }
 }
 
@@ -578,14 +681,20 @@ els.toggle.addEventListener('click', toggleScanner);
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
 document.querySelectorAll('.js-playin').forEach((button) => button.addEventListener('click', checkPlayin));
 document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); showBestPlayinPrice(); }));
-document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); } }));
+document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); offerUndoAdd(currentEntry); } }));
 document.querySelectorAll('[data-finish]').forEach((button) => button.addEventListener('click',()=>{const finish=button.dataset.finish; currentFinish=finish; if(currentEntry) currentEntry.finish=finish; setPressed(finish); showBestPlayinPrice();}));
-els.clear.addEventListener('click', () => { if(confirm('Supprimer toutes les cartes de la collection ?')) {session.length = 0; lastRemoved=null; $('undo-delete').hidden=true; updateSession();} });
+els.clear.addEventListener('click', () => {
+  if (!confirm('Vider toute la collection ? Une copie de sécurité est gardée et tu pourras annuler.')) return;
+  saveSafetyCopy(session, undefined, Date.now(), true);
+  const removed = session.splice(0, session.length); currentEntry = null; updateSession(); refreshDataLine();
+  showToast(`${removed.length} cartes retirées`, 'Annuler', () => { session.push(...removed); updateSession(); }, 10000);
+});
 for(const id of ['history-search','history-min','history-max']) $(id).addEventListener('input',()=>{historyLimit=30; renderHistory();});
 for(const id of ['history-sort','history-period']) $(id).addEventListener('change',()=>{historyLimit=30; renderHistory();});
+$('value-threshold').value = String(valueThreshold);
+$('value-threshold').addEventListener('input',()=>{ const n=Number($('value-threshold').value); valueThreshold = $('value-threshold').value!=='' && Number.isFinite(n) && n>=0 ? n : 5; store.set('mtg-value-threshold', String(valueThreshold)); renderHistory(); renderRecent(); updateValuable(currentEntry ? currentEntry.price : null); });
 $('reset-filters').addEventListener('click',()=>{for(const id of ['history-search','history-min','history-max']) $(id).value=''; $('history-sort').value='newest'; $('history-period').value='all'; historyLimit=30; renderHistory();});
 $('history-more').addEventListener('click',()=>{historyLimit+=30; renderHistory();});
-$('undo-delete').addEventListener('click',()=>{if(lastRemoved){if(lastRemoved.decrement) lastRemoved.item.quantity++; else session.splice(Math.min(lastRemoved.index,session.length),0,lastRemoved.item); lastRemoved=null; updateSession();} clearTimeout(undoTimer); $('undo-delete').hidden=true;});
 for(const [button,panel] of [['more-toggle','more-panel'],['filters-toggle','filters']]) $(button).addEventListener('click',()=>{const open=$(panel).hidden; $(panel).hidden=!open; $(button).setAttribute('aria-expanded',String(open));});
 const VIEWS = ['scanner','search','collection'];
 for(const view of VIEWS) $('tab-'+view).addEventListener('click',()=>{
@@ -647,3 +756,77 @@ $('dx-demo').addEventListener('click', () => {
   sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload();
 });
 $('dx-demo').textContent = DX_DEMO.every((name) => dx[name]) ? 'Remettre le profil normal' : 'Profil « démo » (tout désactiver)';
+
+// ── Foil by default: the next scans are counted as Foil until switched back ──
+currentFinish = defaultFinish; setPressed(currentFinish);
+function updateFoilButtons() { document.querySelectorAll('.js-foil-default').forEach((button) => button.setAttribute('aria-pressed', String(defaultFinish === 'foil'))); }
+document.querySelectorAll('.js-foil-default').forEach((button) => button.addEventListener('click', () => {
+  defaultFinish = defaultFinish === 'foil' ? 'normal' : 'foil'; store.set('mtg-default-finish', defaultFinish); updateFoilButtons();
+  showToast(defaultFinish === 'foil' ? 'Prochains scans comptés en Foil' : 'Prochains scans comptés en Normal', '', null, 2500);
+}));
+updateFoilButtons();
+
+// ── Piles ──
+$('new-pile').addEventListener('click', () => {
+  batch = { id: crypto.randomUUID(), startedAt: new Date().toISOString() }; store.set('mtg-batch', JSON.stringify(batch));
+  updateSession(); showToast('Nouvelle pile commencée', '', null, 3000);
+});
+
+// ── Export, backup and restore ──
+const dataStatus = (message, error = false) => { $('data-status').textContent = message; $('data-status').classList.toggle('error', error); };
+const dateStamp = () => new Date().toISOString().slice(0, 10);
+const whenText = (value) => new Date(value).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+// On iPhone the share sheet offers "Save to Files"; elsewhere a normal download.
+async function deliverFile(filename, text, type) {
+  const blob = new Blob([text], { type });
+  try {
+    const file = new File([blob], filename, { type });
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: filename }); return true; }
+  } catch (error) { if (error.name === 'AbortError') return false; }
+  const url = URL.createObjectURL(blob); const link = document.createElement('a');
+  link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
+}
+function refreshDataLine() {
+  const copy = loadSafetyCopy(); const last = store.get('mtg-last-export');
+  $('safety-line').textContent = `Dernier export : ${last ? whenText(last) : 'jamais'}. Copie automatique : ${copy ? `${whenText(copy.savedAt)} · ${copy.entries.length} cartes` : 'aucune'}. La copie automatique reste sur ce téléphone ; le fichier exporté est la vraie protection.`;
+  $('restore-safety').hidden = !copy;
+}
+$('export-csv').addEventListener('click', async () => {
+  if (!session.length) return dataStatus('La collection est vide.', true);
+  if (await deliverFile(`collection-magic-${dateStamp()}.csv`, toCsv(session), 'text/csv;charset=utf-8')) { store.set('mtg-last-export', new Date().toISOString()); dataStatus(`${session.length} lignes exportées.`); refreshDataLine(); }
+});
+$('export-backup').addEventListener('click', async () => {
+  if (!session.length) return dataStatus('La collection est vide.', true);
+  if (await deliverFile(`sauvegarde-mtg-${dateStamp()}.json`, makeBackup(session), 'application/json')) { store.set('mtg-last-export', new Date().toISOString()); dataStatus('Sauvegarde exportée. Garde-la dans Fichiers ou envoie-la-toi.'); refreshDataLine(); }
+});
+$('import-backup').addEventListener('click', () => $('import-file').click());
+$('import-file').addEventListener('change', async () => {
+  const file = $('import-file').files[0]; $('import-file').value = ''; if (!file) return;
+  const parsed = parseBackup(await file.text());
+  if (!parsed.ok) return dataStatus(parsed.error, true);
+  saveSafetyCopy(session, undefined, Date.now(), true);
+  const added = mergeEntries(session, parsed.entries, () => crypto.randomUUID()); updateSession(); refreshDataLine();
+  dataStatus(added ? `${added} carte${added > 1 ? 's' : ''} restaurée${added > 1 ? 's' : ''}${parsed.skipped ? ` (${parsed.skipped} ignorée${parsed.skipped > 1 ? 's' : ''})` : ''}. Rien n'a été supprimé.` : 'Rien à ajouter : toutes ces cartes sont déjà dans la collection.');
+});
+$('restore-safety').addEventListener('click', () => {
+  const copy = loadSafetyCopy(); if (!copy) return;
+  const added = mergeEntries(session, copy.entries, () => crypto.randomUUID()); updateSession();
+  dataStatus(added ? `${added} carte${added > 1 ? 's' : ''} récupérée${added > 1 ? 's' : ''}.` : 'Rien à récupérer : la collection contient déjà tout.');
+});
+refreshDataLine();
+
+// ── Theme: dark by default, light or automatic on request ──
+function applyTheme(pref) {
+  document.documentElement.dataset.theme = pref; store.set('mtg-theme', pref);
+  const dark = pref === 'dark' || (pref === 'auto' && !matchMedia('(prefers-color-scheme: light)').matches);
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#0b0f15' : '#f6f7fb';
+  document.querySelector('meta[name="color-scheme"]').content = pref === 'dark' ? 'dark' : pref === 'light' ? 'light' : 'dark light';
+}
+$('theme-select').value = document.documentElement.dataset.theme || 'dark';
+$('theme-select').addEventListener('change', () => applyTheme($('theme-select').value));
+matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => applyTheme(document.documentElement.dataset.theme || 'dark'));
+applyTheme(document.documentElement.dataset.theme || 'dark');
+
+// ── First launch: explain the three steps in the camera placeholder ──
+$('onboarding').hidden = session.length > 0;

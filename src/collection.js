@@ -39,6 +39,7 @@ export function selectHistory(items, filters = {}, now = new Date()) {
   if (filters.period === '7d') since = now.getTime() - 7 * 86400000;
   if (filters.period === '30d') since = now.getTime() - 30 * 86400000;
   return items.map((item,index)=>({item,index})).filter(({item})=>{
+    if (filters.period === 'batch' && item.batch !== filters.batchId) return false;
     const text = `${item.name} ${item.set} ${item.number}`.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     if (!text.includes(query)) return false;
     if (min !== null && (!Number.isFinite(item.price) || item.price < min)) return false;
@@ -77,4 +78,17 @@ export function sameIllustration(printings, card) {
   const art = illustrationOf(card);
   if (!art) return [];
   return printings.filter((p) => illustrationOf(p) === art);
+}
+
+// Several scans of the same printing (same finish and language) are shown as one line with a quantity.
+export function groupEntries(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = `${item.id}|${item.finish || 'normal'}|${item.language || 'Fr'}`;
+    const quantity = item.quantity || 1; const total = Number.isFinite(item.price) ? item.price * quantity : 0;
+    const known = groups.get(key);
+    if (known) { known.items.push(item); known.quantity += quantity; known.total += total; if (!Number.isFinite(item.price)) known.unpriced += quantity; }
+    else groups.set(key, { key, rep: item, items: [item], quantity, total, unpriced: Number.isFinite(item.price) ? 0 : quantity });
+  }
+  return [...groups.values()];
 }
