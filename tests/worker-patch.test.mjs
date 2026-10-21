@@ -8,10 +8,10 @@ const ANDROID = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126 M
 const SHARED = { initial: 256, maximum: 65536, shared: true };
 
 // Runs the real snippet against a fake WebAssembly namespace so nothing global is touched.
-function run({ userAgent, platform = 'iPhone', url = 'https://x.test/cv/scanner.worker.mjs?v=abc', Memory = WebAssembly.Memory }) {
+function run({ userAgent, platform = 'iPhone', url = 'https://x.test/cv/scanner.worker.mjs?v=abc', Memory = WebAssembly.Memory, self }) {
   const wasm = { Memory };
   const code = SNIPPET.replaceAll('import.meta.url', '__metaUrl') + '\nreturn { __cvSessionTuning };';
-  const out = new Function('WebAssembly', 'navigator', '__metaUrl', code)(wasm, { userAgent, platform, maxTouchPoints: 5 }, url);
+  const out = new Function('WebAssembly', 'navigator', '__metaUrl', 'self', code)(wasm, { userAgent, platform, maxTouchPoints: 5 }, url, self);
   return { wasm, ...out };
 }
 const GIB = 1024 ** 3;
@@ -75,4 +75,31 @@ test('non-shared memories and unusual descriptors pass through untouched', () =>
   const { wasm } = run({ userAgent: IPHONE });
   assert.equal(new wasm.Memory({ initial: 1, maximum: 2 }).buffer.byteLength, 65536);
   assert.equal(new wasm.Memory({ initial: 1 }).buffer.byteLength, 65536);
+});
+
+test('every result sent to the page carries the current WebAssembly heap size, other messages are untouched', () => {
+  const sent = [];
+  const fakeSelf = { postMessage(message, transfer) { sent.push({ message, transfer }); } };
+  const Real = function (descriptor) { return { buffer: { byteLength: descriptor.initial * 65536 } }; }; Real.prototype = {};
+  const { wasm } = run({ userAgent: IPHONE, Memory: Real, self: fakeSelf });
+  new wasm.Memory({ initial: 256, maximum: 65536, shared: true });   // 16 MiB
+  new wasm.Memory({ initial: 1024, maximum: 65536, shared: true });  // 64 MiB
+  fakeSelf.postMessage({ type: 'result', cardPresent: true }, [1]);
+  fakeSelf.postMessage({ type: 'progress' });
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].message.wasmMB, 80);
+  assert.deepEqual(sent[0].transfer, [1]);
+  assert.equal('wasmMB' in sent[1].message, false);
+});
+
+test('with ?nocap=1 the heap is still measured, but never capped', () => {
+  const sent = [];
+  const fakeSelf = { postMessage(message) { sent.push(message); } };
+  const asked = [];
+  const Real = function (descriptor) { asked.push(descriptor.maximum); return { buffer: { byteLength: 65536 * 256 } }; }; Real.prototype = {};
+  const { wasm } = run({ userAgent: IPHONE, url: 'https://x.test/w.mjs?nocap=1', Memory: Real, self: fakeSelf });
+  new wasm.Memory({ initial: 256, maximum: 65536, shared: true });
+  fakeSelf.postMessage({ type: 'result' });
+  assert.deepEqual(asked, [65536]);
+  assert.equal(sent[0].wasmMB, 16);
 });

@@ -223,10 +223,35 @@ let emptyResults = 0;
 let lastActivity = performance.now();
 let idleTimer = null;
 
+// Each analysis of a card that IS in front of the camera is the heavy one (dewarp, embedding, catalogue search).
+// Crash reports show the page being killed a few seconds after a card was recognised, while it stayed in view
+// and kept being analysed every second. Once a card is recognised we therefore hold off until it leaves the frame
+// or a different card shows up, which also gives the browser time to free the memory of the previous analyses.
+const SCAN_INTERVAL_HELD_MS = 2500;
+let heldKey = null;
+const keyOf = (item) => item?.secondaryId || item?.cardId || null;
+
 function tuneScanRate(result, instance) {
   emptyResults = result.cardPresent === false ? emptyResults + 1 : 0;
-  const wanted = emptyResults >= 3 ? SCAN_INTERVAL_IDLE_MS : SCAN_INTERVAL_ACTIVE_MS;
+  if (heldKey && (result.cardPresent === false || (keyOf(result) && keyOf(result) !== heldKey))) heldKey = null;
+  const wanted = heldKey ? SCAN_INTERVAL_HELD_MS : (emptyResults >= 3 ? SCAN_INTERVAL_IDLE_MS : SCAN_INTERVAL_ACTIVE_MS);
   if (wanted !== scanInterval) { scanInterval = wanted; instance.updateConfig({ scanIntervalMs: wanted }); }
+}
+function holdCard(match) {
+  heldKey = keyOf(match);
+  if (heldKey && scanner && scanInterval !== SCAN_INTERVAL_HELD_MS) { scanInterval = SCAN_INTERVAL_HELD_MS; scanner.updateConfig({ scanIntervalMs: scanInterval }); }
+}
+
+// Last analyses with the size of the engine's WebAssembly heap: shown in the diagnostic after a crash.
+const MEM_KEY = 'mtg-mem';
+function recordMem(result) {
+  if (typeof result.wasmMB !== 'number') return;
+  try {
+    const lines = JSON.parse(localStorage.getItem(MEM_KEY) || '[]');
+    const ms = Number.isFinite(result.timing?.totalMs) ? ` ${Math.round(result.timing.totalMs)}ms` : '';
+    lines.push(`${new Date().toISOString().slice(11, 23)} ${result.cardPresent === false ? 'vide ' : 'carte'} wasm=${result.wasmMB}Mo${ms}${heldKey ? ' (en attente)' : ''}`);
+    localStorage.setItem(MEM_KEY, JSON.stringify(lines.slice(-14)));
+  } catch {}
 }
 
 function pauseScanner(message) {
@@ -278,7 +303,7 @@ function setCamera(running) {
   try { running ? sessionStorage.setItem('mtg-scanning', '1') : sessionStorage.removeItem('mtg-scanning'); } catch {}
   clearInterval(idleTimer); idleTimer = null;
   if (running) {
-    lastActivity = performance.now(); emptyResults = 0;
+    lastActivity = performance.now(); emptyResults = 0; heldKey = null;
     if (scanInterval !== SCAN_INTERVAL_ACTIVE_MS && scanner) { scanInterval = SCAN_INTERVAL_ACTIVE_MS; scanner.updateConfig({ scanIntervalMs: scanInterval }); }
     idleTimer = setInterval(() => { if (performance.now() - lastActivity > AUTO_PAUSE_MS) pauseScanner('Scanner en pause pour éviter que le téléphone chauffe. Touche Démarrer pour reprendre.'); }, 5000);
   }
@@ -315,7 +340,7 @@ async function loadScanner() {
     const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl.href);
     scanner = await createCollectorVisionScannerApplet({
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
-      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay, catalogMode: dx.catv2 ? 'v2' : 'v1',
+      scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay, catalogMode: dx.catv2 ? 'v2' : 'v1', rotationInvariant: !lightProfile,
       onReady() {
         scannerReady = true; trace('engine ready');
         els.mode.textContent = 'Moteur prêt';
@@ -326,7 +351,7 @@ async function loadScanner() {
         setStatus(`${label}… Le premier chargement télécharge environ 40 Mo.`);
       },
       onResult(result, instance) {
-        tuneScanRate(result, instance);
+        recordMem(result); tuneScanRate(result, instance);
         if(scanGate.observe(result)) {
           instance.bucket?.reset();
           setStatus('Cadre libre. Présente la carte suivante.');
@@ -371,6 +396,7 @@ const scanLock = new ScanLock(0);
 async function handleVisualMatch(match) {
   if (!scanLock.canScan()) return;
   if(!scanGate.accept(match)) return;
+  holdCard(match);
   scanLock.start(); lastActivity = performance.now(); trace(`scan detect ${match.cardId?.slice(0, 8)} score=${match.score?.toFixed?.(2)}`);
   const sequence = ++lookupSequence;
   setStatus(`Carte détectée (${Math.round(match.score * 100)} %). Identification…`);
@@ -747,6 +773,8 @@ const diagnosticText = () => [
   `Dernière erreur : ${store.get('mtg-last-error') || 'aucune'}`,
   `Collection : ${session.length} cartes`,
   `Interrupteurs actifs : ${dxActive.join(', ') || 'aucun'}`,
+  `Cartes à l'envers : ${lightProfile ? 'non reconnues (mode économie)' : 'reconnues'}`,
+  '--- mémoire du moteur (dernières analyses) ---', ...JSON.parse(store.get(MEM_KEY) || '[]'),
   '--- dernières étapes ---', ...JSON.parse(store.get(TRACE_KEY) || '[]'),
 ].join('\n');
 $('trace').textContent = diagnosticText();

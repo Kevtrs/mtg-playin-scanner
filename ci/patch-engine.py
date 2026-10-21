@@ -23,10 +23,11 @@ def patch(path, edits):
     path.write_text(text, encoding='utf-8')
 
 
-# 1) The applet never tells the worker which catalogue to use (so it always ran the frozen v1 one).
+# 1) The applet never tells the worker which catalogue to use (so it always ran the frozen v1 one), nor whether
+#    to match cards upside-down too (a second embedding + catalogue search per frame, which the page can switch off).
 applet = root / 'lib' / 'collectorvision-scanner-applet.mjs'
 anchor = '        enableWebGpu: this.config.enableWebGpu === true,'
-patch(applet, [(anchor, anchor + chr(10) + '        catalogMode: this.config.catalogMode === "v2" ? "v2" : "v1",', 1)])
+patch(applet, [(anchor, anchor + chr(10) + '        catalogMode: this.config.catalogMode === "v2" ? "v2" : "v1",' + chr(10) + '        rotationInvariant: this.config.rotationInvariant !== false,', 1)])
 
 # 2) iOS memory: cap the shared WebAssembly heap and stop the ONNX sessions pre-inflating it.
 worker = root / 'scanner.worker.mjs'
