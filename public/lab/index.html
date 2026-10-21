@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>Test du scanner</title>
+<style>
+  :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0f15; color: #f3f5f8; line-height: 1.45; }
+  main { max-width: 30rem; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 48px; display: grid; gap: 14px; }
+  h1 { margin: 0; font-size: 1.4rem; }
+  p { margin: 0; }
+  .muted { color: #b2bac6; font-size: .9rem; }
+  button { min-height: 52px; border: 0; border-radius: 14px; font: inherit; font-weight: 700; font-size: 1.05rem; background: #3ee6ac; color: #06251a; padding: 0 16px; }
+  button.quiet { background: #1d2430; color: #f3f5f8; border: 1px solid #36404f; }
+  button[hidden] { display: none; }
+  .card { background: #151b25; border: 1px solid #2a3340; border-radius: 14px; padding: 14px; display: grid; gap: 8px; }
+  .big { font-size: 1.1rem; font-weight: 700; }
+  .bar { height: 10px; border-radius: 5px; background: #232b38; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 100%; background: #3ee6ac; transform: scaleX(0); transform-origin: left; transition: transform .4s linear; }
+  ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: start; font-size: .95rem; }
+  li b.s { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; background: #232b38; }
+  li.ok b.s { background: #1f6f55; } li.crash b.s { background: #8f2d2d; } li.error b.s, li.stop b.s { background: #8a6a1c; } li.run b.s { background: #2b5fa8; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .8rem; background: #0f141c; border: 1px solid #2a3340; border-radius: 12px; padding: 12px; user-select: text; -webkit-user-select: text; }
+  .preview { width: 100%; height: 34vh; background: #000; border-radius: 12px; display: none; }
+  .warn { color: #f4c971; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Test du scanner</h1>
+  <p id="intro" class="muted">Ce test essaie le scanner par morceaux (moteur seul, caméra seule, puis les deux) pour voir lequel fait planter la page. Il dure environ 3 minutes. <b>Si la page se recharge toute seule, c’est normal et c’est justement ce qu’on cherche</b> : touche « Continuer » et le test reprend là où il en était. Garde l’écran allumé.</p>
+
+  <button id="go">Lancer le test</button>
+
+  <section id="current" class="card" hidden>
+    <p id="cur-title" class="big"></p>
+    <p id="cur-help" class="muted"></p>
+    <div class="bar"><i id="cur-bar"></i></div>
+    <p id="cur-info" class="muted"></p>
+  </section>
+  <canvas id="preview" class="preview" aria-hidden="true"></canvas>
+
+  <ol id="steps"></ol>
+
+  <section id="done" class="card" hidden>
+    <p class="big">Rapport</p>
+    <pre id="report"></pre>
+    <button id="copy" class="quiet">Copier le rapport</button>
+    <button id="again" class="quiet">Recommencer le test</button>
+  </section>
+  <p class="muted"><a href="../" style="color:#3ee6ac">← Retour à l’application</a></p>
+</main>
+<video id="v" playsinline muted style="display:none"></video>
+<script type="module" src="./lab.js"></script>
+</body>
+</html>
