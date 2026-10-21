@@ -41,7 +41,11 @@ jobs:
           cp /tmp/collectorvision/examples/web_scanner/scanner.worker.mjs dist/cv/
           # Correctifs du moteur (catalogue v2, mémoire iOS) : le script échoue si le fichier amont change,
           # pour ne jamais déployer un correctif silencieusement absent.
-          python3 ci/patch-engine.py dist/cv
+          # Version simple (sans JSEP/asyncify) d'onnxruntime-web 1.24.3, la même que celle du moteur : paquet npm vérifié par son empreinte.
+          ORT_INTEGRITY='sha512-41dDq7fxtTm0XzGE7N0d6m8FcOY8EWtUA65GkOixJPB/G7DGzBmiDAnVVXHznRw9bgUZpb+4/1lQK/PNxGpbrQ=='
+          mkdir -p /tmp/ort && (cd /tmp/ort && npm pack onnxruntime-web@1.24.3 --json > pack.json && tar xzf onnxruntime-web-1.24.3.tgz)
+          test "$(python3 -c "import json; print(json.load(open('/tmp/ort/pack.json'))[0]['integrity'])")" = "$ORT_INTEGRITY"
+          python3 ci/patch-engine.py dist/cv /tmp/ort/package/dist
           cp /tmp/collectorvision/LICENSE dist/cv/COLLECTORVISION-LICENSE
           mkdir -p /tmp/cv-assets
           gh release download web-scanner-assets \

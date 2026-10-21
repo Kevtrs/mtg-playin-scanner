@@ -1,4 +1,4 @@
-const CACHE = 'mtg-playin-v7';
+const CACHE = 'mtg-playin-v8';
 const APP_SHELL = ['./', './manifest.webmanifest', './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 // Heavy, versioned or hashed files never change under the same URL: serve them from cache first.
 const IMMUTABLE = /\/(cv|assets)\//;
