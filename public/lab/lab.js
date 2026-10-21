@@ -6,12 +6,9 @@ const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const STEPS = [
-  { id: 'engine-still', title: 'Moteur seul, image fixe', help: 'Aucune caméra. Le moteur analyse une photo de carte.', secs: 15, run: engineStill },
-  { id: 'camera-only', title: 'Caméra seule, sans moteur', help: 'Autorise la caméra si le téléphone le demande.', secs: 15, run: (c) => cameraSteps(c, { engine: false, preview: true }) },
-  { id: 'camera-engine', title: 'Caméra + moteur (comme l’application)', help: 'Pose une carte Magic bien à plat devant la caméra arrière, sans bouger.', secs: 25, run: (c) => cameraSteps(c, { engine: true, preview: true }) },
-  { id: 'camera-engine-nopreview', title: 'Caméra + moteur, sans aperçu à l’écran', help: 'Garde la carte devant la caméra (l’écran restera noir).', secs: 20, run: (c) => cameraSteps(c, { engine: true, preview: false }) },
-  { id: 'camera-engine-small', title: 'Caméra + moteur, images réduites (480 px)', help: 'Garde la carte devant la caméra.', secs: 20, run: (c) => cameraSteps(c, { engine: true, preview: true, width: 480 }) },
-  { id: 'camera-engine-lite', title: 'Caméra basse résolution + images réduites + 1 analyse / 2 s', help: 'Garde la carte devant la caméra.', secs: 20, run: (c) => cameraSteps(c, { engine: true, preview: true, width: 480, lowCam: true, interval: 2000 }) },
+  { id: 'new-still', title: 'Nouveau moteur (WebAssembly simple), image fixe', help: 'Aucune caméra. Le moteur analyse une photo de carte.', secs: 15, run: (c) => engineStill(c, false) },
+  { id: 'new-camera', title: 'Nouveau moteur avec la caméra (comme l’application)', help: 'Pose une carte Magic bien à plat devant la caméra arrière, sans bouger.', secs: 25, run: (c) => cameraSteps(c, { engine: true, preview: true }) },
+  { id: 'old-still', title: 'Ancien moteur (WebGPU/asyncify), image fixe — pour comparer', help: 'Cette étape devrait faire planter la page : c’est normal, c’est la preuve.', secs: 15, run: (c) => engineStill(c, true) },
 ];
 
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; } };
@@ -34,9 +31,9 @@ async function cleanup() {
   for (const r of resources.splice(0)) { try { await r(); } catch { /* already closed */ } }
 }
 
-async function startEngine(ctx) {
+async function startEngine(ctx, old = false) {
   const manifest = await (await fetch('../cv/assets/manifest.json')).json();
-  const worker = new Worker(`../cv/scanner.worker.mjs?v=lab`, { type: 'module' });
+  const worker = new Worker(`../cv/scanner.worker${old ? '.old' : ''}.mjs?v=lab2`, { type: 'module' });
   track(() => worker.terminate());
   const eng = { ready: false, error: null, analyses: 0, busy: false, lastMs: 0, present: 0 };
   worker.onmessage = (event) => {
@@ -60,8 +57,8 @@ async function startEngine(ctx) {
   return eng;
 }
 
-async function engineStill(ctx) {
-  const eng = await startEngine(ctx);
+async function engineStill(ctx, old = false) {
+  const eng = await startEngine(ctx, old);
   const img = new Image(); img.src = '../cv/assets/samples/mtg-sample.jpg'; await img.decode();
   const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 480;
   const g = canvas.getContext('2d'); g.fillStyle = '#1b1f27'; g.fillRect(0, 0, 640, 480);
@@ -145,16 +142,13 @@ function conclusion(R) {
   const by = Object.fromEntries(R.map((r) => [r.id, r]));
   const ok = (id) => by[id]?.status === 'ok'; const bad = (id) => by[id] && by[id].status !== 'ok';
   const lines = [];
-  if (bad('engine-still')) lines.push('Le moteur de reconnaissance fait planter la page À LUI SEUL, sans caméra. Le problème est la mémoire du moteur sur ce téléphone.');
-  else if (bad('camera-only')) lines.push('La caméra seule fait planter la page, sans moteur : le problème est l’affichage ou la capture de la caméra, pas la reconnaissance.');
-  else if (bad('camera-engine')) {
-    lines.push('Le moteur seul tient, la caméra seule tient, mais les deux ensemble font planter la page (comme dans l’application).');
-    if (ok('camera-engine-nopreview')) lines.push('Sans aperçu à l’écran, ça tient : c’est l’affichage de la caméra qui fait la différence.');
-    if (ok('camera-engine-small')) lines.push('Avec des images réduites à 480 px, ça tient : la solution est de réduire la taille des images envoyées au moteur.');
-    else if (ok('camera-engine-lite')) lines.push('Avec caméra basse résolution, images réduites et une analyse toutes les 2 s, ça tient : on peut livrer ce réglage.');
-    if (!ok('camera-engine-nopreview') && !ok('camera-engine-small') && !ok('camera-engine-lite')) lines.push('Aucune variante ne tient : même légère, la combinaison caméra + moteur est trop lourde pour ce téléphone dans Safari.');
-  } else if (R.every((r) => r.status === 'ok')) lines.push('Tout a tenu pendant ce test. Le plantage dépend de quelque chose que l’application fait en plus (prix, collection, éditions…).');
-  else lines.push('Résultats mélangés : voir le détail ci-dessus.');
+  if (ok('new-still') && ok('new-camera')) {
+    lines.push('RÉSOLU : le nouveau moteur tient, avec et sans caméra.');
+    if (bad('old-still')) lines.push('L’ancien moteur plante : la cause est confirmée (le fichier WebAssembly « asyncify », bogue de Safari 26).');
+    else if (ok('old-still')) lines.push('L’ancien moteur tient aussi ici : la cause n’est donc pas celle-là, ou elle dépend de la durée.');
+  } else if (ok('new-still') && bad('new-camera')) lines.push('Le nouveau moteur tient seul mais plante avec la caméra : il reste un problème lié à la caméra.');
+  else if (bad('new-still')) lines.push('Le nouveau moteur plante lui aussi, même sans caméra : la cause est ailleurs (mémoire ou autre partie du moteur).');
+  else lines.push('Résultats incomplets : voir le détail ci-dessus.');
   return lines;
 }
 function report() {

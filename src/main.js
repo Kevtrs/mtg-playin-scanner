@@ -43,8 +43,8 @@ try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionSt
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
 // Diagnostic switches (Collection > Diagnostic): each turns one suspect off so a crash can be bisected.
-const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2', 'nativevideo', 'nomemcap'];
-const DX_DEMO = DX.filter((name) => name !== 'nativevideo' && name !== 'nomemcap'); // the demo profile never re-enables old behaviours
+const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2', 'nativevideo', 'nomemcap', 'oldort'];
+const DX_DEMO = DX.filter((name) => name !== 'nativevideo' && name !== 'nomemcap' && name !== 'oldort'); // the demo profile never re-enables old behaviours
 const dx = Object.fromEntries(DX.map((name) => [name, store.get(`dx-${name}`) === '1']));
 const dxActive = DX.filter((name) => dx[name]);
 const lightProfile = lightMode && !dx.fullres;
@@ -337,6 +337,7 @@ async function loadScanner() {
     moduleUrl.search = `?v=${BUILD_ID}${dx.nomemcap ? '&nocap=1' : ''}`; // the applet copies this query to its worker URL
     const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl.href);
     scanner = await createCollectorVisionScannerApplet({
+      ...(dx.oldort ? { workerUrl: new URL(`./cv/scanner.worker.old.mjs${moduleUrl.search}`, window.location.href).href } : {}), // never pass `undefined`: it would override the default
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
       scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay, catalogMode: dx.catv2 ? 'v2' : 'v1', rotationInvariant: !lightProfile,
       onReady() {
