@@ -43,11 +43,12 @@ try { crashedLastRun = sessionStorage.getItem('mtg-scanning') === '1'; sessionSt
 if (crashedLastRun) { store.set('mtg-crashes', String(Number(store.get('mtg-crashes') || 0) + 1)); store.set('mtg-light-mode', '1'); }
 const lightMode = store.get('mtg-light-mode') === '1';
 // Diagnostic switches (Collection > Diagnostic): each turns one suspect off so a crash can be bisected.
-const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2', 'nativevideo'];
-const DX_DEMO = DX.filter((name) => name !== 'nativevideo'); // the demo profile never re-enables the old native video
+const DX = ['nosw', 'noaudio', 'nooverlay', 'minimalui', 'fullres', 'catv2', 'nativevideo', 'nomemcap'];
+const DX_DEMO = DX.filter((name) => name !== 'nativevideo' && name !== 'nomemcap'); // the demo profile never re-enables old behaviours
 const dx = Object.fromEntries(DX.map((name) => [name, store.get(`dx-${name}`) === '1']));
 const dxActive = DX.filter((name) => dx[name]);
 const lightProfile = lightMode && !dx.fullres;
+const BUILD_ID = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev';
 for (const name of dxActive) document.documentElement.classList.add(`dx-${name}`);
 const recordError = (message) => store.set('mtg-last-error', `${new Date().toLocaleString('fr-FR')} · ${String(message).slice(0, 160)}`);
 // "Black box": the last 40 steps are kept in localStorage so that, after a reload, we can see what ran just before it.
@@ -237,7 +238,7 @@ function pauseScanner(message) {
 const PREVIEW_INTERVAL_MS = 1000 / 15;
 let previewFrame = null;
 let previewLast = 0;
-function stopPreview() { if (previewFrame !== null) cancelAnimationFrame(previewFrame); previewFrame = null; }
+function stopPreview() { if (previewFrame !== null) cancelAnimationFrame(previewFrame); previewFrame = null; const canvas = $('preview'); canvas.width = 0; canvas.height = 0; }
 function startPreview() {
   stopPreview();
   if (dx.nativevideo) return;
@@ -258,7 +259,17 @@ function startPreview() {
   previewFrame = requestAnimationFrame(draw);
 }
 
+// The WebAssembly heap of the recognition engine never shrinks; terminating its worker is the only way to give
+// that memory back. Do it once the camera has been off for a while; the next start reloads the engine from cache.
+let releaseTimer = null;
+function releaseEngine() {
+  if (!scanner || scannerStarted) return;
+  try { scanner.dispose(); } catch { /* already gone */ }
+  scanner = null; scannerReady = false; els.mode.textContent = 'Moteur en attente'; trace('engine released');
+}
+
 function setCamera(running) {
+  clearTimeout(releaseTimer); if (!running) releaseTimer = setTimeout(releaseEngine, 20000);
   scannerStarted = running; trace(running ? 'camera start' : 'camera stop');
   $('camera-label').textContent = running ? 'Arrêter le scanner' : 'Démarrer le scanner';
   els.toggle.dataset.running = String(running);
@@ -299,15 +310,16 @@ async function loadScanner() {
   if (scanner) return scanner;
   setStatus('Chargement du moteur visuel et du catalogue MTG…');
   try {
-    const moduleUrl = new URL('./cv/lib/collectorvision-scanner-applet.mjs', window.location.href).href;
-    const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl);
+    const moduleUrl = new URL('./cv/lib/collectorvision-scanner-applet.mjs', window.location.href);
+    moduleUrl.search = `?v=${BUILD_ID}${dx.nomemcap ? '&nocap=1' : ''}`; // the applet copies this query to its worker URL
+    const { createCollectorVisionScannerApplet } = await import(/* @vite-ignore */ moduleUrl.href);
     scanner = await createCollectorVisionScannerApplet({
       target: '#cv-scanner', autoStart: false, matchThreshold: 0.48, consecutiveMatches: 2,
       scanIntervalMs: SCAN_INTERVAL_ACTIVE_MS, camera: lightProfile ? { width: { ideal: 640 }, height: { ideal: 480 } } : undefined, cooldownMs: 2600, groupBySecondaryId: true, showFpsOverlay: false, overlay: !dx.nooverlay, catalogMode: dx.catv2 ? 'v2' : 'v1',
       onReady() {
         scannerReady = true; trace('engine ready');
         els.mode.textContent = 'Moteur prêt';
-        setStatus('Moteur prêt. Appuie sur Démarrer puis présente une carte entière.');
+        setStatus(scannerStarted ? 'Présente une carte entière à la caméra.' : 'Moteur prêt. Appuie sur Démarrer puis présente une carte entière.');
       },
       onProgress(progress) {
         const label = progress.message || progress.stage || 'Préparation du catalogue';
@@ -752,7 +764,7 @@ for (const name of DX) {
 }
 $('dx-demo').addEventListener('click', () => {
   const allOn = DX_DEMO.every((name) => dx[name]);
-  for (const name of DX) store.set(`dx-${name}`, allOn || name === 'nativevideo' ? '0' : '1');
+  for (const name of DX) store.set(`dx-${name}`, DX_DEMO.includes(name) && !allOn ? '1' : '0');
   sessionStorage.removeItem('mtg-nosw-reloaded'); location.reload();
 });
 $('dx-demo').textContent = DX_DEMO.every((name) => dx[name]) ? 'Remettre le profil normal' : 'Profil « démo » (tout désactiver)';
