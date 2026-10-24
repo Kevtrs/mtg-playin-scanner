@@ -69,6 +69,7 @@
           </div>
 
           <section class="sheet" id="sheet" aria-label="Dernière carte">
+            <div class="source" role="group" aria-label="Source des prix"><button type="button" class="js-source" data-source="playin" aria-pressed="true">Playin · rachat</button><button type="button" class="js-source" data-source="cardmarket" aria-pressed="false">Cardmarket · tendance</button></div>
             <div id="recent" class="recent" hidden>
               <div id="recent-list" class="recent-list" role="group" aria-label="Derniers scans : touche une carte pour la corriger"></div>
               <span id="pile-chip" class="pile-chip"></span>
@@ -113,7 +114,7 @@
 
             <div id="more-panel" class="more" hidden>
               <div class="more-actions">
-                <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg>Voir sur Playin</button>
+                <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg><span class="ext-label">Voir sur Playin</span></button>
                 <button class="btn btn-quiet js-add" aria-label="Ajouter à la collection"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
               </div>
             </div>
@@ -123,6 +124,7 @@
         <!-- ── Recherche ───────────────────────────────────────── -->
         <section id="search-view" class="view scroll" aria-labelledby="tab-search" hidden>
           <div class="search-page">
+            <div class="source" role="group" aria-label="Source des prix"><button type="button" class="js-source" data-source="playin" aria-pressed="true">Playin · rachat</button><button type="button" class="js-source" data-source="cardmarket" aria-pressed="false">Cardmarket · tendance</button></div>
             <form id="lookup-form" class="lookup" autocomplete="off">
               <label>Édition
                 <input id="set-code" maxlength="8" placeholder="HOB" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="next" />
@@ -162,7 +164,7 @@
               <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
               <div class="more-actions">
                 <button class="btn btn-primary js-add"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
-                <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg>Voir sur Playin</button>
+                <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg><span class="ext-label">Voir sur Playin</span></button>
               </div>
             </section>
           </div>
@@ -173,9 +175,10 @@
           <div class="collection">
             <header class="coll-head">
               <div>
-                <p class="coll-label">Valeur de rachat connue</p>
+                <p id="coll-label" class="coll-label">Valeur de rachat connue</p>
                 <p class="coll-total"><strong id="total">0,00 €</strong></p>
                 <p id="unpriced" class="coll-unpriced"></p>
+                <p id="cm-line" class="coll-cm" hidden>Cardmarket (tendance) : <strong id="cm-total">0,00 €</strong></p>
                 <p id="pile-line" class="coll-pile"></p>
               </div>
               <div class="coll-side">
@@ -214,6 +217,7 @@
               </label>
               <label>Prix min. (€)<input id="history-min" type="number" min="0" step="0.01" placeholder="0" inputmode="decimal" /></label>
               <label>Prix max. (€)<input id="history-max" type="number" min="0" step="0.01" placeholder="Sans limite" inputmode="decimal" /></label>
+              <label class="wide">Source des prix<select id="history-source"><option value="all">Toutes</option><option value="playin">Playin (rachat)</option><option value="cardmarket">Cardmarket (tendance)</option></select></label>
               <label class="wide">Mettre en avant les cartes ★ dès (€)<input id="value-threshold" type="number" min="0" step="1" placeholder="5 (0 = désactivé)" inputmode="decimal" /></label>
               <button id="reset-filters" class="btn btn-quiet">Réinitialiser les filtres</button>
             </div>
@@ -275,6 +279,7 @@
             <strong id="ed-title" class="ed-title">Éditions</strong>
             <button id="ed-close" class="btn-icon" type="button" aria-label="Fermer les éditions"><svg class="i" aria-hidden="true"><use href="#i-close" /></svg></button>
           </div>
+          <p id="ed-hint" class="ed-hint" hidden></p>
           <div id="ed-strip" class="ed-strip" role="listbox" aria-label="Éditions de la carte"></div>
         </section>
 

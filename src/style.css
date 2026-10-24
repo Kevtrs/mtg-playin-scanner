@@ -347,3 +347,14 @@ html.dx-nativevideo .preview { display: none !important; }
 .sheet { grid-template-columns: minmax(0, 1fr); }
 .sheet > *, .result > * { min-width: 0; }
 .recent { max-width: 100%; }
+
+/* ───────────── Price source (Playin buy price / Cardmarket trend) ───────────── */
+.source { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: var(--radius-m); background: var(--bg); }
+.source button { min-height: 40px; border: 0; border-radius: var(--radius-s); background: transparent; color: var(--ink-2); font-size: var(--text-s); font-weight: 650; }
+.source button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.search-page > .source { margin-bottom: var(--space-1); }
+html[data-source="cardmarket"] .lang { display: none; }
+.coll-cm { color: var(--ink-2); font-size: var(--text-s); margin-top: 2px; }
+.coll-cm strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ed-sheet { grid-template-rows: none; grid-auto-rows: auto; }
+.ed-hint { color: var(--ink-2); font-size: var(--text-s); line-height: 1.35; }

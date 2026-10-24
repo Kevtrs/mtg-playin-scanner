@@ -2,6 +2,7 @@ import './style.css';
 import { ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration, groupEntries } from './collection.js';
 import { toCsv, makeBackup, parseBackup, mergeEntries, saveSafetyCopy, loadSafetyCopy } from './backup.js';
 import { priceData, searchName, compactRows } from './playin.js';
+import { cardmarketPrices, cardmarketUrl, sourceOf, totalsBySource } from './cardmarket.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
 
@@ -73,6 +74,10 @@ const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', 
 
 // Preferences kept on the device.
 let defaultFinish = store.get('mtg-default-finish') === 'foil' ? 'foil' : 'normal';
+// Where the prices of NEW scans come from: Playin's buy price, or Cardmarket's trend price (via Scryfall, no extra request).
+let priceSource = store.get('mtg-price-source') === 'cardmarket' ? 'cardmarket' : 'playin';
+// What the card currently shown uses: the source of its own entry if it has one, otherwise the chosen mode.
+const activeSource = () => (currentEntry ? sourceOf(currentEntry) : priceSource);
 let valueThreshold = (() => { const stored = store.get('mtg-value-threshold'); const n = Number(stored); return stored !== null && Number.isFinite(n) && n >= 0 ? n : 5; })();
 // A "pile" is a batch of scans (e.g. one sorting session) with its own subtotal; nothing is deleted when a new one starts.
 let batch = (() => {
@@ -95,7 +100,7 @@ function renderHistory() {
   const focusEntry = focused?.closest('[data-entry]')?.dataset.entry;
   const focusAction = focused?.dataset.action;
   $('history').replaceChildren();
-  const items = selectHistory(session, { search:$('history-search').value, sort:$('history-sort').value, period:$('history-period').value, min:$('history-min').value, max:$('history-max').value, batchId:batch.id });
+  const items = selectHistory(session, { search:$('history-search').value, sort:$('history-sort').value, period:$('history-period').value, min:$('history-min').value, max:$('history-max').value, batchId:batch.id, source:$('history-source').value });
   const groups = groupEntries(items);
   const count = groups.reduce((sum, group) => sum + group.quantity, 0);
   const subtotal = groups.reduce((sum, group) => sum + group.total, 0);
@@ -123,7 +128,7 @@ function renderHistory() {
     const body=document.createElement('div'); body.className='history-body';
     const name=document.createElement('strong'); name.textContent=item.name;
     if (isValuable(item.price)) { const star=document.createElement('span'); star.className='star'; star.textContent='★'; star.setAttribute('aria-label','Carte de valeur'); name.append(star); }
-    const info=document.createElement('span'); info.className='history-meta'; info.textContent=`${(item.set||'').toUpperCase()} · #${item.number} · ${(item.language||'Fr').toUpperCase()} · ${item.finish==='foil'?'Foil':'Normal'}`;
+    const info=document.createElement('span'); info.className='history-meta'; info.textContent=`${(item.set||'').toUpperCase()} · #${item.number} · ${sourceOf(item)==='cardmarket' ? 'Cardmarket' : (item.language||'Fr').toUpperCase()} · ${item.finish==='foil'?'Foil':'Normal'}`;
     const time=document.createElement('time'); time.className='history-time';
     const date=new Date(item.scannedAt); time.textContent=Number.isNaN(date.getTime())?'Date inconnue':date.toLocaleString('fr-FR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); if(!Number.isNaN(date.getTime())) time.dateTime=date.toISOString();
     body.append(name,info,time);
@@ -196,8 +201,7 @@ function renderRecent() {
     list.append(button);
   }
   const pile = session.filter((entry) => entry.batch === batch.id);
-  const pileTotal = pile.reduce((sum, entry) => sum + (Number(entry.price) || 0) * (entry.quantity || 1), 0);
-  $('pile-chip').textContent = pile.length ? `Pile ${pile.length} · ${money(pileTotal)}` : '';
+  $('pile-chip').textContent = pile.length ? `Pile ${pile.length} · ${pileTotalText(pile)}` : '';
 }
 async function selectEntry(entry) {
   if (currentEntry === entry) return;
@@ -209,7 +213,7 @@ async function selectEntry(entry) {
       card = await response.json(); cardCache.set(entry.id, card);
     }
     lookupSequence++; currentCard = card; currentEntry = entry; currentFinish = entry.finish;
-    renderCard(card); showEditions(card); queryPlayinPrice(card, entry); renderRecent();
+    applySource(); renderCard(card); showEditions(card); if (sourceOf(entry) === 'playin') queryPlayinPrice(card, entry); renderRecent();
   } catch (error) { setStatus(`Carte introuvable : ${error.message}`, true); }
 }
 
@@ -313,17 +317,24 @@ function setStatus(message, error = false) {
   els.status.classList.toggle('error', error);
 }
 
+// "12,30 €" when the pile has a single source, otherwise each total is labelled.
+function pileTotalText(items) {
+  const t = totalsBySource(items);
+  if (t.playin.cards && t.cardmarket.cards) return `${money(t.playin.sum)} Playin · ${money(t.cardmarket.sum)} Cardmarket`;
+  return t.cardmarket.cards ? `${money(t.cardmarket.sum)} Cardmarket` : money(t.playin.sum);
+}
 let safetyTimer = null;
 function updateSession() {
   els.count.textContent = session.reduce((sum, item) => sum + (item.quantity || 1), 0);
   $('collection-count').textContent=els.count.textContent;
-  const sum = session.reduce((acc, item) => acc + (Number(item.price) || 0) * (item.quantity || 1), 0);
-  els.total.textContent = sum.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  const totals = totalsBySource(session);
+  els.total.textContent = money(totals.playin.sum);
+  $('coll-label').textContent = totals.cardmarket.cards ? 'Valeur de rachat Playin' : 'Valeur de rachat connue';
+  $('cm-line').hidden = !totals.cardmarket.cards; $('cm-total').textContent = money(totals.cardmarket.sum);
   const unknown=session.reduce((sum,item)=>sum+(Number.isFinite(item.price)?0:(item.quantity||1)),0);
   $('unpriced').textContent=unknown ? `${unknown} sans tarif confirmé` : '';
   const pile = session.filter((item) => item.batch === batch.id);
-  const pileTotal = pile.reduce((acc, item) => acc + (Number(item.price) || 0) * (item.quantity || 1), 0);
-  $('pile-line').textContent = pile.length ? `Pile en cours : ${pile.length} carte${pile.length===1?'':'s'} · ${money(pileTotal)}` : 'Pile en cours : vide';
+  $('pile-line').textContent = pile.length ? `Pile en cours : ${pile.length} carte${pile.length===1?'':'s'} · ${pileTotalText(pile)}` : 'Pile en cours : vide';
   if(!saveSession(session)) setStatus('Stockage plein ou bloqué : la collection ne peut pas être sauvegardée.', true);
   clearTimeout(safetyTimer); safetyTimer = setTimeout(() => { saveSafetyCopy(session); refreshDataLine(); }, 5000); // automatic hourly safety copy, off the scan's critical moment
   renderRecent(); renderHistory();
@@ -393,7 +404,7 @@ async function toggleScanner() {
 const scanLock = new ScanLock(0);
 
 async function handleVisualMatch(match) {
-  if (!scanLock.canScan()) return;
+  if (!scanLock.canScan() || editionsOpen) return; // no new scan while the edition choice is open
   if(!scanGate.accept(match)) return;
   holdCard(match);
   scanLock.start(); lastActivity = performance.now(); trace(`scan detect ${match.cardId?.slice(0, 8)} score=${match.score?.toFixed?.(2)}`);
@@ -406,21 +417,28 @@ async function handleVisualMatch(match) {
     const entry = addCardToSession(card); trace('scan added');
     cardCache.set(card.id, card); if (cardCache.size > 30) cardCache.delete(cardCache.keys().next().value);
     offerUndoAdd(entry);
-    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish=defaultFinish; renderCard(card); showEditions(card); renderRecent();}
+    let editionsReady = null;
+    if(sequence === lookupSequence) {currentCard = card; currentEntry=entry; currentFinish=defaultFinish; applySource(); renderCard(card); editionsReady = showEditions(card); renderRecent();}
     trace('scan rendered'); beep(); trace('scan beep');
     if (navigator.vibrate) navigator.vibrate(80);
     flashScan('success');
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ Recherche du prix…`);
-    trace('scan price-start');
-    await queryPlayinPrice(card, entry); trace(`scan price-done ${Number.isFinite(entry.price) ? 'ok' : 'none'}`);
+    if (entry.source !== 'cardmarket') { trace('scan price-start'); await queryPlayinPrice(card, entry); }
+    trace(`scan price-done ${Number.isFinite(entry.price) ? 'ok' : 'none'}`);
     if (!Number.isFinite(entry.price)) { flashScan('warn'); beep('none'); if (navigator.vibrate) navigator.vibrate([60, 60, 60]); }
     if(sequence===lookupSequence) setStatus(`${card.name} ajoutée ✓ ${Number.isFinite(entry.price) ? money(entry.price) : 'Prix indisponible'}. Retire-la pour scanner la suivante.`);
+    // Cardmarket mode asks which edition it is (only when the same artwork exists in several editions: that is the real doubt).
+    if (entry.source === 'cardmarket' && editionsReady) {
+      await editionsReady;
+      if (sequence === lookupSequence && currentEntry === entry && currentPrintings.length >= 2) openEditions({ ask: true });
+    }
   } catch (error) { trace(`scan error ${error.message}`); setStatus(`Identification impossible : ${error.message}. Retire la carte puis représente-la.`, true); }
   finally { scanLock.finish(); trace('scan end'); }
 }
 
 function addCardToSession(card) {
-  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:imageOf(card), set: card.set, number: card.collector_number, setName: card.set_name, promo: card.promo, fullArt: card.full_art, frameEffects: card.frame_effects, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:defaultFinish, language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString(), batch:batch.id };
+  const item = { entryId:crypto.randomUUID(), id: card.id, name: card.name, image:imageOf(card), set: card.set, number: card.collector_number, setName: card.set_name, promo: card.promo, fullArt: card.full_art, frameEffects: card.frame_effects, price: null, quantity: 1, prices:{normal:null,foil:null}, finish:defaultFinish, language:currentLanguage(), priceState:'Recherche…', scannedAt:new Date().toISOString(), batch:batch.id, source: priceSource };
+  if (priceSource === 'cardmarket') { item.prices = cardmarketPrices(card); item.price = item.prices[item.finish]; item.priceState = ''; }
   session.push(item);
   updateSession();
   return item;
@@ -458,7 +476,7 @@ async function lookupCard(set, number) {
   try {
     const response = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(number)}`, { headers: { Accept: 'application/json;q=0.9,*/*;q=0.8' }, signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(response.status === 404 ? `aucune carte ${set.toUpperCase()} n° ${number}` : `Scryfall ${response.status}`);
-    currentCard = await response.json(); currentEntry=null; currentFinish=defaultFinish; renderCard(currentCard); queryPlayinPrice(currentCard); showEditions(currentCard);
+    currentCard = await response.json(); currentEntry=null; currentFinish=defaultFinish; applySource(); renderCard(currentCard); if (priceSource === 'playin') queryPlayinPrice(currentCard); showEditions(currentCard);
     $('search-result').hidden = false; setSearchStatus('Carte trouvée.');
   } catch (error) { setSearchStatus(`Identification impossible : ${error.message}.`, true); }
 }
@@ -478,8 +496,9 @@ function renderCardInfo(card) {
 
 function renderCard(card) {
   renderCardInfo(card);
-  setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
   setPressed(currentFinish); updateValuable(null);
+  if (activeSource() === 'cardmarket') { paintCardmarket(); return; } // the price is already in the card data: nothing to wait for
+  setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
 }
 
 // ── Editions: offered on demand, and only for printings that share the scanned card's illustration ──
@@ -487,10 +506,12 @@ const printingsCache = new Map();
 let currentPrintings = [];
 let editionFilter = '';
 let playinSettled = false; // true once the Playin request for the current card is over (success or not)
+let editionsOpen = false;
+let editionsAsk = false;
 let zoomList = [];
 let zoomIndex = 0;
 const normalImageOf = (c) => c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
-const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, illustration_id: c.illustration_id || c.card_faces?.[0]?.illustration_id, image_uris: { small: imageOf(c), normal: normalImageOf(c) }, prints_search_uri: c.prints_search_uri });
+const slimPrinting = (c) => ({ id: c.id, oracle_id: c.oracle_id, name: c.name, printed_name: c.printed_name, set: c.set, set_name: c.set_name, collector_number: c.collector_number, lang: c.lang, released_at: c.released_at, promo: c.promo, full_art: c.full_art, frame_effects: c.frame_effects, foil: c.foil, prices: { eur: c.prices?.eur ?? null, eur_foil: c.prices?.eur_foil ?? null }, purchase_uris: { cardmarket: c.purchase_uris?.cardmarket ?? null }, illustration_id: c.illustration_id || c.card_faces?.[0]?.illustration_id, image_uris: { small: imageOf(c), normal: normalImageOf(c) }, prints_search_uri: c.prints_search_uri });
 
 async function loadPrintings(card) {
   const key = card.oracle_id || card.id;
@@ -522,7 +543,7 @@ function updateEditionsButtons() {
 }
 
 const editionPrices = (printing) => currentPlayinRows.length ? priceData(printing, currentPlayinRows, currentLanguage()) : null;
-const editionPriceText = (printing, finish) => { const prices = editionPrices(printing); return prices ? priceText(prices[finish]) : (playinSettled ? '—' : '…'); };
+const editionPriceText = (printing, finish) => { if (activeSource() === 'cardmarket') return priceText(cardmarketPrices(printing)[finish]); const prices = editionPrices(printing); return prices ? priceText(prices[finish]) : (playinSettled ? '—' : '…'); };
 
 function renderEditions(scrollToSelected = false) {
   updateEditionsButtons();
@@ -531,7 +552,9 @@ function renderEditions(scrollToSelected = false) {
   const { shown, hidden } = filterEditions(currentPrintings, editionFilter);
   const finish = currentEntry?.finish || currentFinish;
   $('ed-filter-wrap').hidden = currentPrintings.length <= 8;
-  $('ed-title').textContent = `Éditions (${currentPrintings.length})`;
+  $('ed-title').textContent = editionsAsk ? `Quelle édition ? (${currentPrintings.length})` : `Éditions (${currentPrintings.length})`;
+  $('ed-hint').hidden = !editionsAsk;
+  if (editionsAsk) $('ed-hint').textContent = `Touche une carte pour la voir en grand et la choisir. Ferme pour garder l’édition scannée (${(currentEntry?.set || '').toUpperCase()} #${currentEntry?.number ?? ''}).`;
   const strip = $('ed-strip'); strip.replaceChildren();
   shown.forEach((printing, index) => {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'ed'; button.setAttribute('role', 'option');
@@ -553,14 +576,16 @@ function renderEditions(scrollToSelected = false) {
   if (scrollToSelected) strip.querySelector('[aria-selected="true"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
-function openEditions() {
+function openEditions({ ask = false } = {}) {
   if (currentPrintings.length < 2) return;
+  editionsOpen = true; editionsAsk = ask;
   $('ed-sheet').hidden = false;
   document.querySelectorAll('.js-ed-open').forEach((button) => button.setAttribute('aria-expanded', 'true'));
   renderEditions(true);
 }
 function closeEditions() {
   closeZoom();
+  editionsOpen = false; editionsAsk = false;
   $('ed-sheet').hidden = true;
   document.querySelectorAll('.js-ed-open').forEach((button) => button.setAttribute('aria-expanded', 'false'));
 }
@@ -591,7 +616,8 @@ function chooseEdition(printing) {
   currentCard = printing;
   if (currentEntry) Object.assign(currentEntry, { id: printing.id, image: imageOf(printing), set: printing.set, number: printing.collector_number, setName: printing.set_name, promo: printing.promo, fullArt: printing.full_art, frameEffects: printing.frame_effects });
   renderCardInfo(printing);
-  if (currentPlayinRows.length) showBestPlayinPrice(); else { const none = playinSettled ? '—' : '…'; setBind('normal', none); setBind('foil', none); }
+  if (activeSource() === 'cardmarket') paintCardmarket();
+  else if (currentPlayinRows.length) showBestPlayinPrice(); else { const none = playinSettled ? '—' : '…'; setBind('normal', none); setBind('foil', none); }
   trace(`edition ${printing.set}#${printing.collector_number}`);
   renderEditions(); updateSession();
 }
@@ -636,6 +662,10 @@ function parsePlayinRows(html) {
 
 function paintPrices(item) {
   setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil)); updateValuable(item.prices[item.finish]);
+  if (item.prices.source === 'cardmarket') {
+    setBind('note', `${item.prices.edition || 'Édition inconnue'} · Cardmarket, tendance (prix du jour) · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total.${Number.isFinite(item.prices[item.finish])?'':` Pas de prix ${item.finish==='foil'?'Foil':'Normal'} pour cette édition.`}`);
+    setPressed(item.finish); return;
+  }
   if (item.prices.matched === false) {
     setBind('note', item.prices.ambiguous ? 'Plusieurs éditions Playin correspondent : pas de prix. Vérifie sur Playin.' : 'Cette édition n’a pas de ligne équivalente chez Playin : pas de prix.');
     setPressed(item.finish); return;
@@ -650,6 +680,15 @@ function showBestPlayinPrice() {
   if (currentEntry) item.priceState = ''; // the lookup is over, whether or not a tariff exists
   paintPrices(item); updateSession();
 }
+
+function paintCardmarket() {
+  if (!currentCard) return;
+  const item = currentEntry || { finish: currentFinish, language: currentLanguage() };
+  item.prices = cardmarketPrices(currentCard); item.price = item.prices[item.finish];
+  if (currentEntry) item.priceState = '';
+  paintPrices(item); updateSession();
+}
+const refreshPrices = () => (activeSource() === 'cardmarket' ? paintCardmarket() : showBestPlayinPrice());
 
 const playinCache = loadPriceCache();
 let priceSaveTimer = null;
@@ -711,15 +750,19 @@ async function queryPlayinPrice(card, entry = null) {
 }
 
 function checkPlayin() {
-  if (currentCard) window.open(directPlayinUrl(currentCard), '_blank', 'noopener');
+  if (!currentCard) return;
+  const url = activeSource() === 'cardmarket'
+    ? (cardmarketUrl(currentCard) || `https://www.cardmarket.com/fr/Magic/Products/Search?searchString=${encodeURIComponent(searchName(currentCard))}`)
+    : directPlayinUrl(currentCard);
+  window.open(url, '_blank', 'noopener');
 }
 
 els.toggle.addEventListener('click', toggleScanner);
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
 document.querySelectorAll('.js-playin').forEach((button) => button.addEventListener('click', checkPlayin));
-document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); showBestPlayinPrice(); }));
-document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); offerUndoAdd(currentEntry); } }));
-document.querySelectorAll('[data-finish]').forEach((button) => button.addEventListener('click',()=>{const finish=button.dataset.finish; currentFinish=finish; if(currentEntry) currentEntry.finish=finish; setPressed(finish); showBestPlayinPrice();}));
+document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); refreshPrices(); }));
+document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if (currentEntry.source === 'cardmarket') paintCardmarket(); else if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); offerUndoAdd(currentEntry); } }));
+document.querySelectorAll('[data-finish]').forEach((button) => button.addEventListener('click',()=>{const finish=button.dataset.finish; currentFinish=finish; if(currentEntry) currentEntry.finish=finish; setPressed(finish); refreshPrices();}));
 els.clear.addEventListener('click', () => {
   if (!confirm('Vider toute la collection ? Une copie de sécurité est gardée et tu pourras annuler.')) return;
   saveSafetyCopy(session, undefined, Date.now(), true);
@@ -727,10 +770,10 @@ els.clear.addEventListener('click', () => {
   showToast(`${removed.length} cartes retirées`, 'Annuler', () => { session.push(...removed); updateSession(); }, 10000);
 });
 for(const id of ['history-search','history-min','history-max']) $(id).addEventListener('input',()=>{historyLimit=30; renderHistory();});
-for(const id of ['history-sort','history-period']) $(id).addEventListener('change',()=>{historyLimit=30; renderHistory();});
+for(const id of ['history-sort','history-period','history-source']) $(id).addEventListener('change',()=>{historyLimit=30; renderHistory();});
 $('value-threshold').value = String(valueThreshold);
 $('value-threshold').addEventListener('input',()=>{ const n=Number($('value-threshold').value); valueThreshold = $('value-threshold').value!=='' && Number.isFinite(n) && n>=0 ? n : 5; store.set('mtg-value-threshold', String(valueThreshold)); renderHistory(); renderRecent(); updateValuable(currentEntry ? currentEntry.price : null); });
-$('reset-filters').addEventListener('click',()=>{for(const id of ['history-search','history-min','history-max']) $(id).value=''; $('history-sort').value='newest'; $('history-period').value='all'; historyLimit=30; renderHistory();});
+$('reset-filters').addEventListener('click',()=>{for(const id of ['history-search','history-min','history-max']) $(id).value=''; $('history-sort').value='newest'; $('history-period').value='all'; $('history-source').value='all'; historyLimit=30; renderHistory();});
 $('history-more').addEventListener('click',()=>{historyLimit+=30; renderHistory();});
 for(const [button,panel] of [['more-toggle','more-panel'],['filters-toggle','filters']]) $(button).addEventListener('click',()=>{const open=$(panel).hidden; $(panel).hidden=!open; $(button).setAttribute('aria-expanded',String(open));});
 const VIEWS = ['scanner','search','collection'];
@@ -868,3 +911,17 @@ applyTheme(document.documentElement.dataset.theme || 'dark');
 
 // ── First launch: explain the three steps in the camera placeholder ──
 $('onboarding').hidden = session.length > 0;
+
+// ── Price source: Playin buy price / Cardmarket trend ──
+function applySource() {
+  document.documentElement.dataset.source = activeSource();
+  document.querySelectorAll('.js-source').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.source === priceSource)));
+  document.querySelectorAll('.js-playin .ext-label').forEach((label) => { label.textContent = activeSource() === 'cardmarket' ? 'Voir sur Cardmarket' : 'Voir sur Playin'; });
+}
+document.querySelectorAll('.js-source').forEach((button) => button.addEventListener('click', () => {
+  if (button.dataset.source === priceSource) return;
+  priceSource = button.dataset.source; store.set('mtg-price-source', priceSource);
+  if (currentCard && !currentEntry) { applySource(); renderCard(currentCard); if (priceSource === 'playin') queryPlayinPrice(currentCard); }
+  applySource();
+}));
+applySource();
