@@ -32,7 +32,7 @@ export function nameKey(name) {
     .replace(/[’‘`´]/g, "'").replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-export const numberKey = (value) => String(value ?? '').trim().toLowerCase().replace(/^0+(?=.)/, '');
+export const numberKey = (value) => String(value ?? '').trim().toLowerCase().replace(/[★☆†‡*\s]/g, '').replace(/^0+(?=.)/, '');
 
 // Scryfall set code <-> MagicCorporation edition ids (a few sets map to several ids). Built once from the snapshot table.
 const IDS_BY_SET = (() => {

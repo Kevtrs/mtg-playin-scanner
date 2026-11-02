@@ -387,3 +387,10 @@ test('sheet: verify, absent, error and unchecked never show a price and never cl
   assert.equal(mcPanel({status: 'error'}).canRetry, true); assert.equal(mcPanel({status: 'ok', card: normalizeCard(LB_4E)}).canRetry, false);
   assert.equal(mcPanel(null, {playin: {}}).finishes.normal.best, null); // nothing known at either shop: no winner
 });
+
+test('foil-star collector numbers (273★) match the plain number MagicCorporation lists', () => {
+  const thorn = raw({id: 9, name: 'Thorn Elemental', number: '273', edition: {id: 41, name: '7ème Édition', code: '7E'}, buyback_price_vf: 0.3, buyback_price_vo: 0.3});
+  assert.equal(numberKey('273★'), '273');
+  const m = matchPrinting(cards(thorn), card('Thorn Elemental', '7ed', '273★'));
+  assert.equal(m.status, 'ok'); assert.equal(m.card.vf, 0.3);
+});

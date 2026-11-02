@@ -70,7 +70,7 @@ window.addEventListener('error', (event) => recordError(`${event.message} (${(ev
 window.addEventListener('unhandledrejection', (event) => recordError(event.reason?.message || event.reason));
 const bindAll = (name) => document.querySelectorAll(`[data-bind="${name}"]`);
 const setBind = (name, text) => bindAll(name).forEach((node) => { node.textContent = text; });
-const setPressed = (finish) => document.querySelectorAll('[data-finish]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.finish === finish)));
+const setPressed = (finish) => { document.documentElement.dataset.finish = finish; document.querySelectorAll('[data-finish]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.finish === finish))); };
 const currentLanguage = () => document.querySelector('.js-lang').value;
 const money = (value) => Number.isFinite(value) ? value.toLocaleString('fr-FR', {style:'currency',currency:'EUR'}) : 'Indisponible';
 
@@ -209,7 +209,7 @@ function renderRecent() {
     list.append(button);
   }
   const pile = session.filter((entry) => entry.batch === batch.id);
-  $('pile-chip').textContent = pile.length ? `Pile ${pile.length} · ${pileTotalText(pile)}` : '';
+  $('pile-chip').textContent = pile.length ? `Pile ${pile.length}` : '';
 }
 async function selectEntry(entry) {
   if (currentEntry === entry) return;
@@ -714,25 +714,35 @@ function parsePlayinRows(html) {
 const mcInfo = (x) => ({ name: x.name, set: x.set, collector_number: x.collector_number ?? x.number });
 let currentMc = null;  // result for the card shown in the sheet
 let shownItem = null;  // what paintPrices last displayed (prices, language, finish)
-const mcNote = (text, retry) => bindAll('mcnote').forEach((node) => {
-  node.replaceChildren(text || ''); node.hidden = !text;
-  if (text && retry) { const button = document.createElement('button'); button.type = 'button'; button.className = 'mc-retry'; button.textContent = 'Réessayer'; button.onclick = retry; node.append(' ', button); }
-});
+const mcNote = (text) => bindAll('mcnote').forEach((node) => { node.textContent = text || ''; node.hidden = !text; });
+let playinProblem = ''; // short reason shown under the Playin figure when it has none
 function paintMc() {
-  const lines = document.querySelectorAll('[data-mc]');
+  const finish = shownItem?.finish || currentFinish;
+  const shops = document.querySelectorAll('.shops'); const lines = document.querySelectorAll('[data-mc]');
+  const tag = (name, content) => document.querySelectorAll(`[data-tag="${name}"]`).forEach((node) => { node.replaceChildren(content || ''); });
+  shops.forEach((shop) => { shop.dataset.best = ''; });
+  tag('mc', ''); tag('playin', playinProblem);
   const off = activeSource() === 'cardmarket' || !currentCard || shownItem?.prices?.source === 'cardmarket' || !currentMc;
-  document.querySelectorAll('[data-finish]').forEach((button) => { delete button.dataset.best; });
   if (off) { lines.forEach((line) => { line.hidden = true; line.textContent = ''; }); mcNote(''); return; }
   const panel = mcPanel(currentMc, { language: shownItem?.language || currentLanguage(), playin: shownItem?.prices || {} });
+  const loading = currentMc.status === 'loading';
   lines.forEach((line) => {
     const f = panel.finishes[line.dataset.mc]; line.hidden = false;
-    line.textContent = `MagicCorporation ${f.price !== null ? money(f.price) : (currentMc.status === 'loading' ? '…' : f.text)}`;
+    line.textContent = f.price !== null ? money(f.price) : (loading ? '…' : f.text);
     line.classList.toggle('muted', f.price === null);
-    const button = line.closest('[data-finish]'); if (button && f.best) button.dataset.best = f.best;
-    if (f.best === 'mc' && !f.only) line.textContent += ` · +${money(f.diff)}`;
   });
-  const card = currentCard; const entry = currentEntry;
-  mcNote(currentMc.status === 'loading' ? 'MagicCorporation : recherche en cours…' : panel.note, panel.canRetry ? () => mcRequest(card, entry, { force: true }) : null);
+  const f = panel.finishes[finish];
+  if (panel.status === 'ok' && (f.best === 'playin' || f.best === 'mc')) {
+    const label = f.only ? 'Seule offre' : `Meilleure offre · +${money(f.diff)}`;
+    shops.forEach((shop) => { shop.dataset.best = f.best; });
+    tag(f.best === 'mc' ? 'mc' : 'playin', label);
+  } else if (panel.status === 'ok' && f.best === 'tie') tag('mc', 'Même prix');
+  if (panel.canRetry) {
+    const card = currentCard; const entry = currentEntry;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'mc-retry'; button.textContent = 'Réessayer';
+    button.onclick = () => mcRequest(card, entry, { force: true }); tag('mc', button);
+  }
+  mcNote(loading ? 'MagicCorporation : recherche en cours…' : panel.note);
 }
 // Stores the answer on every entry of that printing (Playin entries only), whatever the card shown at the time.
 function mcApply(id, result) {
@@ -761,7 +771,7 @@ function startMc(card, entry) {
 }
 
 function paintPrices(item) {
-  shownItem = item; queueMicrotask(paintMc);
+  shownItem = item; playinProblem = item.prices?.matched === false ? (item.prices.ambiguous ? 'Plusieurs éditions' : 'Pas de ligne Playin') : ''; queueMicrotask(paintMc);
   setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil)); updateValuable(item.prices[item.finish]);
   if (item.prices.source === 'cardmarket') {
     setBind('note', `${item.prices.edition || 'Édition inconnue'} · Cardmarket, tendance (prix du jour) · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total.${Number.isFinite(item.prices[item.finish])?'':` Pas de prix ${item.finish==='foil'?'Foil':'Normal'} pour cette édition.`}`);
@@ -839,14 +849,14 @@ const entryPrinting = (entry, fallback) => ({ name: entry.name, set_name: entry.
 
 async function queryPlayinPrice(card, entry = null) {
   const sameCard = () => currentCard && searchName(currentCard) === searchName(card);
-  if(sameCard()) { currentPlayinRows = []; playinSettled = false; }
+  if(sameCard()) { currentPlayinRows = []; playinSettled = false; playinProblem = ''; }
   try {
     const rows = await fetchPlayinRows(searchName(card));
     if(entry) { entry.prices=priceData(entryPrinting(entry, card),rows,entry.language); entry.price=entry.prices[entry.finish]; entry.priceState=''; updateSession(); }
     if(sameCard()) {currentPlayinRows=rows; playinSettled=true; showBestPlayinPrice(); renderEditions();}
   } catch (error) {
     if(entry) {entry.priceState='Prix indisponible'; updateSession();}
-    if(sameCard()) {playinSettled=true; updateValuable(null); setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`); renderEditions();}
+    if(sameCard()) {playinSettled=true; playinProblem='Pas de réponse'; paintMc(); updateValuable(null); setBind('normal','—'); setBind('foil','—'); setBind('note', `Prix indisponible : Playin n’a pas répondu (${error.message}).`); renderEditions();}
   }
 }
 

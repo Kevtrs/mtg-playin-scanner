@@ -69,7 +69,6 @@
           </div>
 
           <section class="sheet" id="sheet" aria-label="Dernière carte">
-            <div class="source" role="group" aria-label="Source des prix"><button type="button" class="js-source" data-source="playin" aria-pressed="true">Playin · rachat</button><button type="button" class="js-source" data-source="cardmarket" aria-pressed="false">Cardmarket · tendance</button></div>
             <div id="recent" class="recent" hidden>
               <div id="recent-list" class="recent-list" role="group" aria-label="Derniers scans : touche une carte pour la corriger"></div>
               <span id="pile-chip" class="pile-chip"></span>
@@ -80,7 +79,6 @@
                 <div class="name-row"><strong data-bind="name" class="card-name">Présente une carte</strong><span class="star" data-valuable hidden title="Carte de valeur" aria-label="Carte de valeur">★</span></div>
                 <span data-bind="meta" class="card-meta">Une carte entière, bien à plat.</span>
               </div>
-              <button class="foil-default js-foil-default" type="button" aria-pressed="false" title="Compter les prochains scans en Foil">Foil</button>
               <label class="lang"><span class="sr-only">Langue du prix</span>
                 <select class="js-lang" aria-label="Langue du prix">
                   <option value="Fr">FR</option>
@@ -88,20 +86,26 @@
                 </select>
               </label>
             </div>
-            <div class="prices" role="group" aria-label="Prix de rachat Playin et MagicCorporation">
-              <button class="price" data-finish="normal" aria-pressed="true">
-                <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
-                <strong data-bind="normal">—</strong>
-                <span class="mc-line" data-mc="normal" hidden></span>
-              </button>
-              <button class="price" data-finish="foil" aria-pressed="false">
-                <span class="price-label">Foil <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
-                <strong data-bind="foil">—</strong>
-                <span class="mc-line" data-mc="foil" hidden></span>
-              </button>
+            <div class="finish" role="group" aria-label="Finition de la carte">
+              <button type="button" data-finish="normal" aria-pressed="true">Normal</button>
+              <button type="button" data-finish="foil" aria-pressed="false">Foil</button>
             </div>
-            <p data-bind="note" class="price-note">Touche Foil si ta carte est brillante.</p>
-            <p class="mc-note" data-bind="mcnote" hidden></p>
+            <div class="shops" role="group" aria-label="Prix de rachat" data-best="">
+              <div class="shop shop-playin">
+                <span class="shop-name"><span class="n-playin">Playin</span><span class="n-cm">Cardmarket · tendance</span></span>
+                <strong class="shop-price" data-bind="normal">—</strong><strong class="shop-price" data-bind="foil">—</strong>
+                <small class="shop-tag" data-tag="playin"></small>
+              </div>
+              <div class="shop shop-mc">
+                <span class="shop-name">MagicCorporation</span>
+                <span class="shop-price" data-mc="normal" hidden></span><span class="shop-price" data-mc="foil" hidden></span>
+                <small class="shop-tag" data-tag="mc"></small>
+              </div>
+            </div>
+            <details class="why"><summary>Détails des prix</summary>
+              <p data-bind="note" class="price-note"></p>
+              <p class="mc-note" data-bind="mcnote" hidden></p>
+            </details>
             <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
 
             <div class="controls">
@@ -116,6 +120,7 @@
             </div>
 
             <div id="more-panel" class="more" hidden>
+              <div class="source" role="group" aria-label="Source des prix"><button type="button" class="js-source" data-source="playin" aria-pressed="true">Playin · rachat</button><button type="button" class="js-source" data-source="cardmarket" aria-pressed="false">Cardmarket · tendance</button></div>
               <div class="more-actions">
                 <button class="btn btn-quiet js-playin"><svg class="i" aria-hidden="true"><use href="#i-external" /></svg><span class="ext-label">Voir sur Playin</span></button>
                 <button class="btn btn-quiet js-add" aria-label="Ajouter à la collection"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
@@ -146,27 +151,32 @@
                   <div class="name-row"><strong data-bind="name" class="card-name"></strong><span class="star" data-valuable hidden title="Carte de valeur" aria-label="Carte de valeur">★</span></div>
                   <span data-bind="meta" class="card-meta"></span>
                 </div>
-                <button class="foil-default js-foil-default" type="button" aria-pressed="false" title="Compter les prochains scans en Foil">Foil</button>
                 <label class="lang"><span class="sr-only">Langue du prix</span>
                   <select class="js-lang" aria-label="Langue du prix">
                     <option value="Fr">FR</option>
                     <option value="En">EN</option>
                   </select>
                 </label>
-              </div>              <div class="prices" role="group" aria-label="Prix de rachat Playin et MagicCorporation">
-                <button class="price" data-finish="normal" aria-pressed="true">
-                  <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
-                  <strong data-bind="normal">—</strong>
-                <span class="mc-line" data-mc="normal" hidden></span>
-                </button>
-                <button class="price" data-finish="foil" aria-pressed="false">
-                  <span class="price-label">Foil <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
-                  <strong data-bind="foil">—</strong>
-                <span class="mc-line" data-mc="foil" hidden></span>
-                </button>
+              </div>              <div class="finish" role="group" aria-label="Finition de la carte">
+              <button type="button" data-finish="normal" aria-pressed="true">Normal</button>
+              <button type="button" data-finish="foil" aria-pressed="false">Foil</button>
+            </div>
+            <div class="shops" role="group" aria-label="Prix de rachat" data-best="">
+              <div class="shop shop-playin">
+                <span class="shop-name"><span class="n-playin">Playin</span><span class="n-cm">Cardmarket · tendance</span></span>
+                <strong class="shop-price" data-bind="normal">—</strong><strong class="shop-price" data-bind="foil">—</strong>
+                <small class="shop-tag" data-tag="playin"></small>
               </div>
+              <div class="shop shop-mc">
+                <span class="shop-name">MagicCorporation</span>
+                <span class="shop-price" data-mc="normal" hidden></span><span class="shop-price" data-mc="foil" hidden></span>
+                <small class="shop-tag" data-tag="mc"></small>
+              </div>
+            </div>
+            <details class="why"><summary>Détails des prix</summary>
               <p data-bind="note" class="price-note"></p>
               <p class="mc-note" data-bind="mcnote" hidden></p>
+            </details>
               <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
               <div class="more-actions">
                 <button class="btn btn-primary js-add"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
