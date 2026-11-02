@@ -336,7 +336,7 @@ const MC_STATE_TEXT = { quote: 'sur devis', notBought: 'non rachetées', lowValu
 let mcBulk = null;
 function mcMissing() {
   const seen = new Set();
-  return session.filter((entry) => sourceOf(entry) === 'playin' && !entry.mc && entry.id && entry.set && entry.number && (seen.has(entry.id) ? false : seen.add(entry.id)));
+  return session.filter((entry) => sourceOf(entry) === 'playin' && entry.mc?.status !== 'ok' && entry.id && entry.set && entry.number && (seen.has(entry.id) ? false : seen.add(entry.id)));
 }
 function paintMcTotals() {
   const comparable = session.filter((entry) => sourceOf(entry) === 'playin');

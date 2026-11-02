@@ -18,7 +18,7 @@ export const MC_RESULT_TTL_MS = 6 * 3600 * 1000;
 const PAGE_TTL_MS = 10 * 60 * 1000;
 const MAX_PAGES = 4;
 const MAX_CACHED_RESULTS = 150;
-const CACHE_KEY = 'mtg-mc-cache';
+const CACHE_KEY = 'mtg-mc-cache-2';
 const LEARNED_KEY = 'mtg-mc-learned';
 
 // ───────────────────────── names, numbers, editions ─────────────────────────
@@ -69,6 +69,10 @@ export function matchPrinting(candidates, card, learned = {}) {
   const exact = sameEdition.filter((c) => wantNumber && numberKey(c.number) === wantNumber);
   if (exact.length === 1) return { status: 'ok', card: exact[0] };
   if (exact.length > 1) return { status: 'verify', reason: 'ambiguous', candidates: exact };
+  // The edition is right but the numbers do not agree (MagicCorporation lists "0" or its own numbering, Scryfall says "S3"):
+  // when that edition holds exactly ONE row of that name there is no other printing to confuse it with.
+  const lenient = sameEdition.filter((c) => !numberKey(c.number) || numberKey(c.number) === '0' || numberingUnreliable(c.edition));
+  if (sameEdition.length === 1 && lenient.length === 1) return { status: 'ok', card: lenient[0], loose: true };
   const noNumber = sameEdition.filter((c) => !numberKey(c.number));
   if (noNumber.length) return { status: 'verify', reason: 'no-number', candidates: noNumber };
   const renumbered = sameEdition.filter((c) => numberingUnreliable(c.edition));
@@ -158,7 +162,7 @@ export const resultLabel = (status) => ({
 export function snapshotResult(result) {
   if (!result || !['ok', 'verify', 'absent'].includes(result.status)) return null;
   const out = { v: 1, status: result.status, at: result.at ?? Date.now() };
-  if (result.status === 'ok') out.card = result.card;
+  if (result.status === 'ok') { out.card = result.card; if (result.loose) out.loose = true; }
   if (result.status === 'verify') {
     out.reason = String(result.reason || '');
     out.candidates = (result.candidates || []).slice(0, 3).map((c) => ({ id: c.id, number: c.number, edition: c.edition }));
@@ -175,6 +179,7 @@ export function sanitizeMc(raw) {
   const out = { v: 1, status: raw.status, at: Number.isFinite(raw.at) ? raw.at : 0 };
   if (raw.status === 'ok') {
     const c = raw.card; if (!c || typeof c !== 'object') return undefined;
+    if (raw.loose === true) out.loose = true;
     out.card = { id: Number.isInteger(c.id) ? c.id : null, name: text(c.name), number: text(c.number, 16), edition: edition(c.edition), nameFr: text(c.nameFr),
       enBlocked: c.enBlocked === true, notBought: c.notBought === true, lowValue: c.lowValue === true,
       vf: num(c.vf), vo: num(c.vo), fvf: num(c.fvf), fvo: num(c.fvo), foilVf: c.foilVf === true, foilVo: c.foilVo === true };
@@ -219,6 +224,7 @@ export function mcPanel(result, { language = 'Fr', playin = {} } = {}) {
     const shown = out.finishes.normal.offer?.state === 'price' ? out.finishes.normal.offer : out.finishes.foil.offer;
     if (shown?.limit) notes.push(`${shown.limit} exemplaires max par envoi`);
     for (const finish of ['normal', 'foil']) { const alt = out.finishes[finish].offer?.alt; if (alt) { notes.push(`${alt.language.toUpperCase()} : ${alt.price.toFixed(2).replace('.', ',')} €`); break; } }
+    if (result.loose) notes.push('numéro différent chez MagicCorporation : seule impression de cette édition');
     out.note = notes.join(' · ');
   } else if (status === 'verify') out.note = `${VERIFY_REASONS[result.reason] || 'Correspondance incertaine'} : vérifie sur MagicCorporation.`;
   else if (status === 'absent') out.note = 'Cette impression n’est pas dans la liste de rachat de MagicCorporation.';
@@ -414,7 +420,7 @@ export function createMcClient(options = {}) {
       if (match.status === 'absent' && !complete) match = { status: 'verify', reason: 'too-many', candidates: [] };
       const result = { status: match.status, at: now() };
       if (match.status === 'ok') {
-        result.card = match.card;
+        result.card = match.card; if (match.loose) result.loose = true;
         const set = String(card.set).toLowerCase();
         if (match.card.edition.id && !MC_EDITIONS[match.card.edition.id] && !learned[set]) { learned[set] = match.card.edition.id; writeJson(storage, LEARNED_KEY, learned); }
       } else if (match.status === 'verify') { result.reason = match.reason; result.candidates = match.candidates; }

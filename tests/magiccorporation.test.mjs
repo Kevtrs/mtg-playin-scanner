@@ -81,10 +81,23 @@ test('two identical rows are ambiguous: verify, never pick one', () => {
   assert.equal(m.status, 'verify'); assert.equal(m.reason, 'ambiguous');
 });
 
-test('editions whose numbering differs from Scryfall (Renaissance) never confirm a number that does not match', () => {
+test('numbering differs (Renaissance #1 vs #2): accepted only when it is the single row of that name in that edition', () => {
   const alabaster = raw({id: 1, name: 'Alabaster Potion', name_fr: 'Potion d’albâtre', number: '1', edition: {id: 16, name: 'Renaissance', code: 'RE'}});
-  assert.equal(matchPrinting(cards(alabaster), card('Alabaster Potion', 'ren', '2')).status, 'verify'); // MagicCorporation: #1, Scryfall: #2
-  assert.equal(matchPrinting(cards(alabaster), card('Alabaster Potion', 'ren', '1')).status, 'ok');
+  const one = matchPrinting(cards(alabaster), card('Alabaster Potion', 'ren', '2'));
+  assert.equal(one.status, 'ok'); assert.equal(one.loose, true);
+  assert.equal(matchPrinting(cards(alabaster), card('Alabaster Potion', 'ren', '1')).loose, undefined); // exact number: not loose
+  const twin = raw({id: 2, name: 'Alabaster Potion', number: '7', edition: {id: 16, name: 'Renaissance', code: 'RE'}});
+  assert.equal(matchPrinting(cards(alabaster, twin), card('Alabaster Potion', 'ren', '2')).status, 'verify'); // two rows: never pick one
+});
+
+test('MagicCorporation number "0" (8th Edition) matches Scryfall S3 when it is the only row of that name in the edition', () => {
+  const octopus = raw({id: 7, name: 'Giant Octopus', name_fr: 'Pieuvre géante', number: '0', edition: {id: 49, name: '8ème Édition', code: '8E'}, buyback_price_vf: 0.1, buyback_price_vo: 0});
+  const other = raw({id: 8, name: 'Giant Octopus', number: '77', edition: {id: 41, name: '7ème Édition', code: '7E'}});
+  const m = matchPrinting(cards(other, octopus), card('Giant Octopus', '8ed', 'S3'));
+  assert.equal(m.status, 'ok'); assert.equal(m.card.vf, 0.1); assert.equal(m.loose, true);
+  assert.equal(matchPrinting(cards(other), card('Giant Octopus', '8ed', 'S3')).status, 'absent'); // only another edition listed
+  assert.match(mcPanel({status: 'ok', loose: true, card: normalizeCard(octopus)}).note, /numéro différent/);
+  assert.equal(sanitizeMc(snapshotResult({status: 'ok', loose: true, card: normalizeCard(octopus)})).loose, true);
 });
 
 test('a card with a different front face is not the same card (Emeritus of Conflict /Lightning Bolt)', () => {
@@ -280,7 +293,7 @@ test('a corrupt or full storage never breaks lookups', async () => {
   const broken = {getItem() { throw new Error('denied'); }, setItem() { throw new Error('quota'); }};
   const t = make(() => pageOf([LB_4E]), {storage: broken});
   assert.equal((await t.client.lookup(LB_CARD_4ED)).status, 'ok');
-  const garbage = memStorage(); garbage.d['mtg-mc-cache'] = '{oops';
+  const garbage = memStorage(); garbage.d['mtg-mc-cache-2'] = '{oops';
   assert.equal((await make(() => pageOf([LB_4E]), {storage: garbage}).client.lookup(LB_CARD_4ED)).status, 'ok');
 });
 
