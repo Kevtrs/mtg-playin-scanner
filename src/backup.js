@@ -1,4 +1,6 @@
 // Collection export (CSV for Excel/Numbers), backup file (JSON) and the automatic safety copy.
+import { entryComparison, resultLabel, stateLabel, sanitizeMc } from './magiccorporation.js';
+
 const APP = 'mtg-playin-scanner';
 export const BACKUP_VERSION = 1;
 const SAFETY_KEY = 'mtg-session-backup';
@@ -9,11 +11,21 @@ const cell = (value) => { const text = String(value ?? ''); return /[;"\n\r]/.te
 const decimal = (value) => Number.isFinite(value) ? value.toFixed(2).replace('.', ',') : '';
 
 // Semicolon-separated with a BOM and decimal commas: opens correctly in French Excel and Numbers.
+// MagicCorporation columns: price for the entry's language and finish, why there is none, and the best shop.
+function mcColumns(item) {
+  if (item.source === 'cardmarket') return ['', '', ''];
+  const c = entryComparison(item);
+  if (c.status !== 'ok') return ['', resultLabel(c.status), ''];
+  const best = { playin: 'Playin', mc: 'MagicCorporation', tie: 'Égalité' }[c.best] || '';
+  return c.magic !== null ? [decimal(c.magic), 'Racheté', best] : ['', stateLabel(c.offer), best];
+}
+
 export function toCsv(session) {
-  const header = ['Nom', 'Édition', 'Code', 'Numéro', 'Langue', 'Finition', 'Prix unitaire (€)', 'Quantité', 'Total (€)', 'Date du scan', 'Source des prix'];
+  const header = ['Nom', 'Édition', 'Code', 'Numéro', 'Langue', 'Finition', 'Prix unitaire (€)', 'Quantité', 'Total (€)', 'Date du scan', 'MagicCorporation (€)', 'Statut MagicCorporation', 'Meilleure offre', 'Source des prix'];
   const rows = session.map((item) => {
     const quantity = item.quantity || 1; const price = Number.isFinite(item.price) ? item.price : null;
-    return [item.name, item.setName || '', (item.set || '').toUpperCase(), item.number, (item.language || 'Fr').toUpperCase(), item.finish === 'foil' ? 'Foil' : 'Normal', decimal(price), quantity, price === null ? '' : decimal(price * quantity), item.scannedAt || '', item.source === 'cardmarket' ? 'Cardmarket (tendance)' : 'Playin (rachat)'].map(cell).join(';');
+    const mc = mcColumns(item);
+    return [item.name, item.setName || '', (item.set || '').toUpperCase(), item.number, (item.language || 'Fr').toUpperCase(), item.finish === 'foil' ? 'Foil' : 'Normal', decimal(price), quantity, price === null ? '' : decimal(price * quantity), item.scannedAt || '', ...mc, item.source === 'cardmarket' ? 'Cardmarket (tendance)' : 'Playin (rachat)'].map(cell).join(';');
   });
   return '﻿' + [header.map(cell).join(';'), ...rows].join('\r\n') + '\r\n';
 }
@@ -40,6 +52,7 @@ function sanitize(entry) {
     priceState: typeof entry.priceState === 'string' ? entry.priceState : '', scannedAt: typeof entry.scannedAt === 'string' ? entry.scannedAt : undefined,
     batch: typeof entry.batch === 'string' ? entry.batch : undefined,
     source: entry.source === 'cardmarket' ? 'cardmarket' : undefined,
+    mc: sanitizeMc(entry.mc),
   };
 }
 
