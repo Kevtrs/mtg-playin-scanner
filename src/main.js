@@ -3,6 +3,7 @@ import { ScanGate, ScanLock, selectHistory, filterEditions, sameIllustration, gr
 import { toCsv, makeBackup, parseBackup, mergeEntries, saveSafetyCopy, loadSafetyCopy } from './backup.js';
 import { priceData, searchName, compactRows } from './playin.js';
 import { cardmarketPrices, cardmarketUrl, sourceOf, totalsBySource } from './cardmarket.js';
+import { createMcClient, mcPanel, snapshotResult, comparisonTotals, resultLabel } from './magiccorporation.js';
 import { PRICE_RELAY_URL } from './config.js';
 import { loadSession, saveSession, loadPriceCache, savePriceCache, PRICE_TTL_MS } from './storage.js';
 
@@ -24,6 +25,7 @@ let currentEntry = null;
 let currentFinish = 'normal';
 let lookupSequence = 0;
 const scanGate = new ScanGate();
+const mc = createMcClient(); // MagicCorporation buy-back prices (queue, cache and rate limit live in src/magiccorporation.js)
 let historyLimit = 30;
 const openHistory = new Set();
 const session = loadSession();
@@ -147,7 +149,13 @@ function renderHistory() {
     const remove=document.createElement('button'); remove.type='button'; remove.className='remove'; remove.dataset.action='remove';
     remove.innerHTML='<svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>'; remove.append(quantity>1?'Retirer un exemplaire':'Supprimer la carte');
     remove.onclick=()=>removeOne(group);
-    controls.append(prices,toggle,remove);
+    const magic=document.createElement('p'); magic.className='mc-row';
+    if (sourceOf(item)==='playin') {
+      const panel=mcPanel(item.mc,{language:item.language,playin:item.prices}); const f=panel.finishes[item.finish];
+      magic.textContent=`MagicCorporation : ${f.price!==null?money(f.price):f.text}${f.best==='mc'?' · meilleure offre':''}${panel.status==='ok'?` (${item.mc.card.edition.name||item.mc.card.edition.code} n°${item.mc.card.number})`:''}`;
+      if (panel.status!=='ok') { const ask=document.createElement('button'); ask.type='button'; ask.className='mc-retry'; ask.dataset.action='mc'; ask.textContent=panel.status==='unchecked'?'Comparer':'Revérifier'; ask.onclick=()=>{ ask.disabled=true; mcRequest(item,null,{force:true}); }; magic.append(' ',ask); }
+    }
+    controls.append(prices,...(sourceOf(item)==='playin'?[magic]:[]),toggle,remove);
     if (quantity>1 && group.items.length>1) {
       const all=document.createElement('button'); all.type='button'; all.className='remove remove-all'; all.dataset.action='remove-all'; all.textContent=`Supprimer les ${quantity} exemplaires`;
       all.onclick=()=>removeAll(group); controls.append(all);
@@ -323,6 +331,44 @@ function pileTotalText(items) {
   if (t.playin.cards && t.cardmarket.cards) return `${money(t.playin.sum)} Playin · ${money(t.cardmarket.sum)} Cardmarket`;
   return t.cardmarket.cards ? `${money(t.cardmarket.sum)} Cardmarket` : money(t.playin.sum);
 }
+// ── Collection: totals per shop, best offer per card, and a way to fill in the cards not compared yet ──
+const MC_STATE_TEXT = { quote: 'sur devis', notBought: 'non rachetées', lowValue: 'non rachetées à l’unité', unavailable: 'langue non rachetée', noFoil: 'foil non racheté', verify: 'à vérifier', absent: 'non listées', unchecked: 'non comparées' };
+let mcBulk = null;
+function mcMissing() {
+  const seen = new Set();
+  return session.filter((entry) => sourceOf(entry) === 'playin' && !entry.mc && entry.id && entry.set && entry.number && (seen.has(entry.id) ? false : seen.add(entry.id)));
+}
+function paintMcTotals() {
+  const comparable = session.filter((entry) => sourceOf(entry) === 'playin');
+  $('mc-summary').hidden = !comparable.length;
+  if (!comparable.length) return;
+  const t = comparisonTotals(session);
+  $('mc-playin-total').textContent = money(t.playin.sum); $('mc-total').textContent = money(t.mc.sum); $('mc-best-total').textContent = money(t.best.sum);
+  const parts = Object.entries(MC_STATE_TEXT).filter(([key]) => t.mcStates[key]).map(([key, label]) => `${t.mcStates[key]} ${label}`);
+  if (t.overLimit) parts.push(`${t.overLimit} au-dessus de la limite d’envoi`);
+  if (t.best.unknown) parts.push(`${t.best.unknown} sans aucun prix`);
+  $('mc-states').textContent = parts.length ? `Non comptées chez MagicCorporation : ${parts.join(' · ')}.` : '';
+  const missing = mcMissing().length; const button = $('mc-compare-all');
+  button.hidden = !mcBulk && !missing;
+  button.textContent = mcBulk ? `Arrêter (${mcBulk.done}/${mcBulk.total})` : `Comparer ${missing} carte${missing === 1 ? '' : 's'} avec MagicCorporation`;
+}
+async function compareMissing() {
+  if (mcBulk) { mcBulk.stop = true; return; }
+  const todo = mcMissing(); if (!todo.length) return;
+  mcBulk = { stop: false, done: 0, total: todo.length }; paintMcTotals();
+  for (const entry of todo) {
+    if (mcBulk.stop) break;
+    const result = await mcRequest(entry, null, { force: false }); // the client spaces the requests and caches the answers
+    if (!result && !mc.state().pending) { $('mc-wait').textContent = 'MagicCorporation ne répond pas : comparaison interrompue. Playin n’est pas affecté.'; break; }
+    mcBulk.done += 1; paintMcTotals();
+  }
+  mcBulk = null; paintMcTotals(); updateSession();
+}
+$('mc-compare-all').addEventListener('click', compareMissing);
+mc.onStatus((status) => {
+  const wait = status.waiting ? Math.ceil(status.waitMs / 1000) : 0;
+  $('mc-wait').textContent = wait >= 3 ? `MagicCorporation : pause de ${wait} s pour respecter sa limite de requêtes.` : '';
+});
 let safetyTimer = null;
 function updateSession() {
   els.count.textContent = session.reduce((sum, item) => sum + (item.quantity || 1), 0);
@@ -331,6 +377,7 @@ function updateSession() {
   els.total.textContent = money(totals.playin.sum);
   $('coll-label').textContent = totals.cardmarket.cards ? 'Valeur de rachat Playin' : 'Valeur de rachat connue';
   $('cm-line').hidden = !totals.cardmarket.cards; $('cm-total').textContent = money(totals.cardmarket.sum);
+  paintMcTotals();
   const unknown=session.reduce((sum,item)=>sum+(Number.isFinite(item.price)?0:(item.quantity||1)),0);
   $('unpriced').textContent=unknown ? `${unknown} sans tarif confirmé` : '';
   const pile = session.filter((item) => item.batch === batch.id);
@@ -497,8 +544,9 @@ function renderCardInfo(card) {
 function renderCard(card) {
   renderCardInfo(card);
   setPressed(currentFinish); updateValuable(null);
-  if (activeSource() === 'cardmarket') { paintCardmarket(); return; } // the price is already in the card data: nothing to wait for
+  if (activeSource() === 'cardmarket') { currentMc = null; shownItem = null; paintMc(); paintCardmarket(); return; } // the price is already in the card data: nothing to wait for
   setBind('normal', '…'); setBind('foil', '…'); setBind('note', 'Recherche du prix de rachat sur Playin…');
+  startMc(card, currentEntry);
 }
 
 // ── Editions: offered on demand, and only for printings that share the scanned card's illustration ──
@@ -616,6 +664,8 @@ function chooseEdition(printing) {
   currentCard = printing;
   if (currentEntry) Object.assign(currentEntry, { id: printing.id, image: imageOf(printing), set: printing.set, number: printing.collector_number, setName: printing.set_name, promo: printing.promo, fullArt: printing.full_art, frameEffects: printing.frame_effects });
   renderCardInfo(printing);
+  if (currentEntry) delete currentEntry.mc; // the old answer was for another printing
+  startMc(printing, currentEntry);
   if (activeSource() === 'cardmarket') paintCardmarket();
   else if (currentPlayinRows.length) showBestPlayinPrice(); else { const none = playinSettled ? '—' : '…'; setBind('normal', none); setBind('foil', none); }
   trace(`edition ${printing.set}#${printing.collector_number}`);
@@ -660,7 +710,58 @@ function parsePlayinRows(html) {
   }).filter((row) => row.variants.length);
 }
 
+// ── MagicCorporation: a second buy-back price, looked up in the background. Nothing here may block Playin or scanning. ──
+const mcInfo = (x) => ({ name: x.name, set: x.set, collector_number: x.collector_number ?? x.number });
+let currentMc = null;  // result for the card shown in the sheet
+let shownItem = null;  // what paintPrices last displayed (prices, language, finish)
+const mcNote = (text, retry) => bindAll('mcnote').forEach((node) => {
+  node.replaceChildren(text || ''); node.hidden = !text;
+  if (text && retry) { const button = document.createElement('button'); button.type = 'button'; button.className = 'mc-retry'; button.textContent = 'Réessayer'; button.onclick = retry; node.append(' ', button); }
+});
+function paintMc() {
+  const lines = document.querySelectorAll('[data-mc]');
+  const off = activeSource() === 'cardmarket' || !currentCard || shownItem?.prices?.source === 'cardmarket' || !currentMc;
+  document.querySelectorAll('[data-finish]').forEach((button) => { delete button.dataset.best; });
+  if (off) { lines.forEach((line) => { line.hidden = true; line.textContent = ''; }); mcNote(''); return; }
+  const panel = mcPanel(currentMc, { language: shownItem?.language || currentLanguage(), playin: shownItem?.prices || {} });
+  lines.forEach((line) => {
+    const f = panel.finishes[line.dataset.mc]; line.hidden = false;
+    line.textContent = `MagicCorporation ${f.price !== null ? money(f.price) : (currentMc.status === 'loading' ? '…' : f.text)}`;
+    line.classList.toggle('muted', f.price === null);
+    const button = line.closest('[data-finish]'); if (button && f.best) button.dataset.best = f.best;
+    if (f.best === 'mc' && !f.only) line.textContent += ` · +${money(f.diff)}`;
+  });
+  const card = currentCard; const entry = currentEntry;
+  mcNote(currentMc.status === 'loading' ? 'MagicCorporation : recherche en cours…' : panel.note, panel.canRetry ? () => mcRequest(card, entry, { force: true }) : null);
+}
+// Stores the answer on every entry of that printing (Playin entries only), whatever the card shown at the time.
+function mcApply(id, result) {
+  const snap = snapshotResult(result); if (!snap) return false;
+  for (const entry of session) if (entry.id === id && sourceOf(entry) === 'playin') entry.mc = snap;
+  return true;
+}
+async function mcRequest(info, entry = null, { force = false } = {}) {
+  const id = info.id ?? entry?.id; if (!id || (entry ? sourceOf(entry) !== 'playin' : priceSource !== 'playin')) return null;
+  const showing = () => currentCard?.id === id;
+  if (showing() && !['ok', 'verify', 'absent'].includes(currentMc?.status)) { currentMc = { status: 'loading' }; paintMc(); } // keep showing a stored answer while it refreshes
+  try {
+    const result = await mc.lookup(mcInfo(info), { force });
+    if (mcApply(id, result)) updateSession();
+    if (showing()) { currentMc = result; paintMc(); }
+    return result;
+  } catch (error) {
+    if (showing()) { currentMc = { status: 'error', message: `MagicCorporation indisponible (${error.message}). Playin n’est pas affecté.` }; paintMc(); }
+    return null;
+  }
+}
+// Fires when a card appears in the sheet: shows what is already known at once, then refreshes in the background.
+function startMc(card, entry) {
+  currentMc = entry?.mc?.status ? { ...entry.mc } : null; shownItem = null; paintMc();
+  if (activeSource() === 'playin') mcRequest(card, entry);
+}
+
 function paintPrices(item) {
+  shownItem = item; queueMicrotask(paintMc);
   setBind('normal', priceText(item.prices.normal)); setBind('foil', priceText(item.prices.foil)); updateValuable(item.prices[item.finish]);
   if (item.prices.source === 'cardmarket') {
     setBind('note', `${item.prices.edition || 'Édition inconnue'} · Cardmarket, tendance (prix du jour) · ${item.finish==='foil'?'Foil':'Normal'} compté dans le total.${Number.isFinite(item.prices[item.finish])?'':` Pas de prix ${item.finish==='foil'?'Foil':'Normal'} pour cette édition.`}`);
@@ -760,8 +861,8 @@ function checkPlayin() {
 els.toggle.addEventListener('click', toggleScanner);
 els.form.addEventListener('submit', (event) => { event.preventDefault(); lookupCard(els.set.value, els.number.value); });
 document.querySelectorAll('.js-playin').forEach((button) => button.addEventListener('click', checkPlayin));
-document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); refreshPrices(); }));
-document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if (currentEntry.source === 'cardmarket') paintCardmarket(); else if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); offerUndoAdd(currentEntry); } }));
+document.querySelectorAll('.js-lang').forEach((select) => select.addEventListener('change', () => { document.querySelectorAll('.js-lang').forEach((other) => { other.value = select.value; }); refreshPrices(); paintMc(); }));
+document.querySelectorAll('.js-add').forEach((button) => button.addEventListener('click', () => { if (currentCard) { currentEntry=addCardToSession(currentCard); currentEntry.finish=currentFinish; if (currentEntry.source === 'cardmarket') paintCardmarket(); else if(currentPlayinRows.length) showBestPlayinPrice(); else queryPlayinPrice(currentCard,currentEntry); if (currentEntry.source !== 'cardmarket') mcRequest(currentCard, currentEntry); setStatus(`${currentCard.name} ajoutée.`); setSearchStatus(`${currentCard.name} ajoutée à la collection ✓`); offerUndoAdd(currentEntry); } }));
 document.querySelectorAll('[data-finish]').forEach((button) => button.addEventListener('click',()=>{const finish=button.dataset.finish; currentFinish=finish; if(currentEntry) currentEntry.finish=finish; setPressed(finish); refreshPrices();}));
 els.clear.addEventListener('click', () => {
   if (!confirm('Vider toute la collection ? Une copie de sécurité est gardée et tu pourras annuler.')) return;

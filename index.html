@@ -88,17 +88,20 @@
                 </select>
               </label>
             </div>
-            <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
+            <div class="prices" role="group" aria-label="Prix de rachat Playin et MagicCorporation">
               <button class="price" data-finish="normal" aria-pressed="true">
                 <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
                 <strong data-bind="normal">—</strong>
+                <span class="mc-line" data-mc="normal" hidden></span>
               </button>
               <button class="price" data-finish="foil" aria-pressed="false">
                 <span class="price-label">Foil <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
                 <strong data-bind="foil">—</strong>
+                <span class="mc-line" data-mc="foil" hidden></span>
               </button>
             </div>
             <p data-bind="note" class="price-note">Touche Foil si ta carte est brillante.</p>
+            <p class="mc-note" data-bind="mcnote" hidden></p>
             <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
 
             <div class="controls">
@@ -150,17 +153,20 @@
                     <option value="En">EN</option>
                   </select>
                 </label>
-              </div>              <div class="prices" role="group" aria-label="Prix de rachat Playin, Mint/Nmint">
+              </div>              <div class="prices" role="group" aria-label="Prix de rachat Playin et MagicCorporation">
                 <button class="price" data-finish="normal" aria-pressed="true">
                   <span class="price-label">Normal <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
                   <strong data-bind="normal">—</strong>
+                <span class="mc-line" data-mc="normal" hidden></span>
                 </button>
                 <button class="price" data-finish="foil" aria-pressed="false">
                   <span class="price-label">Foil <svg class="i i-check" aria-hidden="true"><use href="#i-check" /></svg></span>
                   <strong data-bind="foil">—</strong>
+                <span class="mc-line" data-mc="foil" hidden></span>
                 </button>
               </div>
               <p data-bind="note" class="price-note"></p>
+              <p class="mc-note" data-bind="mcnote" hidden></p>
               <button class="btn btn-quiet ed-open js-ed-open" type="button" aria-controls="ed-sheet" aria-expanded="false" hidden><svg class="i" aria-hidden="true"><use href="#i-stack" /></svg>Éditions possibles (<b class="ed-open-count"></b>)</button>
               <div class="more-actions">
                 <button class="btn btn-primary js-add"><svg class="i" aria-hidden="true"><use href="#i-plus" /></svg>Ajouter</button>
@@ -179,6 +185,13 @@
                 <p class="coll-total"><strong id="total">0,00 €</strong></p>
                 <p id="unpriced" class="coll-unpriced"></p>
                 <p id="cm-line" class="coll-cm" hidden>Cardmarket (tendance) : <strong id="cm-total">0,00 €</strong></p>
+                <div id="mc-summary" class="coll-mc" hidden>
+                  <p class="mc-sum-line">Playin <strong id="mc-playin-total"></strong> · MagicCorporation <strong id="mc-total"></strong></p>
+                  <p class="mc-sum-best">Meilleure offre carte par carte : <strong id="mc-best-total"></strong></p>
+                  <p id="mc-states" class="coll-unpriced"></p>
+                  <p id="mc-wait" class="coll-unpriced" role="status"></p>
+                  <button id="mc-compare-all" class="btn btn-quiet" type="button" hidden></button>
+                </div>
                 <p id="pile-line" class="coll-pile"></p>
               </div>
               <div class="coll-side">
